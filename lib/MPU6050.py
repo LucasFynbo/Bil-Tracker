@@ -104,7 +104,7 @@ class MPU6050:
         y:float = (self._translate_pair(data[2], data[3])) / modifier
         z:float = (self._translate_pair(data[4], data[5])) / modifier
         
-        return (x, y, z)
+        return y
         
     def read_lpf_range(self) -> int:
         return self.i2c.readfrom_mem(self.address, 0x1A, 1)[0]

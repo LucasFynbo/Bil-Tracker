@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import mysql.connector as mysql
 from mysql.connector import Error, OperationalError
+import secrets
 
 app = Flask(__name__)
 
@@ -13,10 +14,10 @@ class DatabaseConnection:
     def connect(self):
         try:
             self.db = mysql.connect(
-                host="79.171.148.163",
-                user="user",
-                passwd="MaaGodt*7913!",
-                database="LogunitDB",
+                host="localhost",
+                user="tracker",
+                passwd="$MY_DB_PASSWORD",
+                database="biltracker",
                 connection_timeout=300
             )
             self.mycursor = self.db.cursor(dictionary=True)
@@ -63,7 +64,79 @@ class DatabaseConnection:
     def get_row_count(self):
         return self.mycursor.rowcount
 
-db_connection = DatabaseConnection()
+
+class DataHandler:
+    def __init__(self):
+        self.db_connection = DatabaseConnection()
+
+    def received_coords(self, received_coords=None, tracker_id=None):
+        try:
+            # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
+            query = "SELECT EXISTS(SELECT 1 FROM Tracker_enheder WHERE Tracker_id = %s);"
+            self.db_connection.execute_query(query, (tracker_id,))
+            if_exist = self.db_connection.fetchone()[0]
+
+            if not if_exist:
+                return {"status": "error", "message": "Tracker identification not found"}, 404
+            
+            query = "INSERT INTO Lokation_log (Koordinater, Tracker_id, Tidspunkt) VALUES (%s, %s, NOW())"
+            self.db_connection.execute_query(query, (received_coords, tracker_id))
+            self.db_connection.commit()
+
+            return {"status": "success", "message": "Coordinates insertion successful"}, 200
+        
+        except Exception:
+            self.db_connection.rollback()
+            return {"status": "error", "message": "Error during coordinates insertion"}, 500
+
+    def get_coords(self, tracker_id=None):
+        try:
+            # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer. 
+            query = "SELECT EXISTS(SELECT 1 FROM Tracker_enheder WHERE Tracker_id = %s);"
+            self.db_connection.execute_query(query, (tracker_id,))
+            if_exist = self.db_connection.fetchone()[0]
+
+            if not if_exist:
+                return {"status": "error", "message": "Tracker identification not found"}, 404
+            
+            query = "SELECT Koordinater FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+            self.db_connection.execute_query(query, (tracker_id,))
+            coords = self.db_connection.fetchone_column("Koordinater")
+
+            return {"status": "success", "message": "Received coordinates successfully", "coords": coords}, 200
+        
+        except Exception:
+            return {"status": "error", "message": "Error receiving coordinates"}, 500
+
+    def generate_tracker_id(self):
+        success = 0
+
+        while 0 == success:
+            # String generation
+            rtal = secrets.choice(range(10000, 99999)) # Device id skabes, dette er en blot en streng af tal.
+            tracker_id = ('Tracker#' + str(rtal))
+
+            # Tjek MySQL db om der et tracker id som er i forvejen genereret. 
+            query = "SELECT * FROM Tracker_enheder WHERE Tracker_id = %s"
+            self.db_connection.execute_query(query, (tracker_id,))
+            result = self.db_connection.fetchone()
+
+            if result is None:
+                # Input generated string i MySQL 
+                try:
+                    query = "INSERT INTO Tracker_enheder (Tracker_id) VALUES (%s)"
+                    self.db_connection.execute_query(query, (tracker_id,))
+                    self.db_connection.commit()
+
+                    print('[+] Device ID & Password successfully generated: %s' % (tracker_id))
+                    success = 1
+                    return {"status": "success", "message": "Successfully generated tracker identification", "tracker_id": tracker_id}, 200
+                    
+                except Exception as e:
+                    print(f"Error generating tracker identification: {e}")
+            else:
+                print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
+            
 
 data_handler = DataHandler()
 @app.route('/', methods=['POST'])
@@ -71,6 +144,33 @@ def handle():
     data = request.json
 
     print(data)
+
+    match(data):
+        case "received coords":
+            coords = data.get('coords')
+            tracker_id = data.get('tracker_id')
+
+            if not coords or not tracker_id:
+                return jsonify({"status": "error", "message": "No coordinates or tracker identification specified in received data"}), 400
+
+            result, status_code = data_handler.handle_coords(coords, tracker_id)
+            return jsonify(result), status_code
+
+        case "get coords":
+            tracker_id = data.get('tracker_id')
+
+            if not tracker_id:
+                return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
+
+            result, status_code = data_handler.get_coords(coords, tracker_id)
+            return jsonify(result), status_code
+
+        case "tracker id request":
+            result, status_code = data_handler.generate_tracker_id()
+            return jsonify(result), status_code
+
+        case _:
+            return {"status": "error", "message": "Error handeling received data"}, 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=13371)
