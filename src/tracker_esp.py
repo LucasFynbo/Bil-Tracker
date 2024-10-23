@@ -1,26 +1,24 @@
 from machine import I2C, Pin, UART
 import time
 import MPU6050
-import ConnectHandler
+import captive_portal
 import urequests
 import ujson as json
 
+TRACKER_ID = None
+SERVER_URL = "79.171.148.143"
+
 class SendData:
-    def __init__(self, server_url, tracker_id=None):
-
-        self.server_url = server_url
-        self.tracker_id = tracker_id
-
     def send_data(self, type=None, gps=None):
 
         if 'tracker id request' == type:
             try:
                 data_packet = {
-                    'data': 'tracker id request',					
+                    'data': 'tracker id request',
                 }
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
-                response = urequests.post(self.server_url, json=data_packet)
+                response = urequests.post(SERVER_URL, json=data_packet)
 
                 response_data = response.json()
 
@@ -28,10 +26,10 @@ class SendData:
                     print(f"Server response: {response.text}")
 
                     # Måske skal det være [0] eller [2] idk...
-                    self.tracker_id = response_data[2]['tracker_id']
+                    TRACKER_ID = response_data[2]['tracker_id']
 
                     with open('tracker_id.txt', 'w') as file:
-                        file.write(f"TrackerID:{self.tracker_id}")
+                        file.write(f"TrackerID:{TRACKER_ID}")
 
                     print("[+] Tracker id request successfully handled")
 
@@ -51,7 +49,7 @@ class SendData:
                 }
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
-                response = urequests.post(self.server_url, json=data_packet)
+                response = urequests.post(SERVER_URL, json=data_packet)
 
             except Exception as e:
                 print(f"Unhandled exception: {e}")
@@ -71,9 +69,8 @@ def tracker_id_control():
         else:
             for line in credentials_file.split('\n'):
                 if "TrackerID:" in line:
-                    tracker_id = line.split(':')[1].strip()
-            print(f"[+] Tracker ID: {tracker_id}")
-            return tracker_id
+                    TRACKER_ID = line.split(':')[1].strip()
+            print(f"[+] Tracker ID: {TRACKER_ID}")
             
     except OSError as e:
         # Hvis filen ikke eksisterer
@@ -218,12 +215,45 @@ class Accelerometer:
             time.sleep(0.5)  # Optional delay to avoid excessive processing
 
 if __name__ == "__main__":
-    connect = ConnectHandler.getip("BibNet", "")
-    print(f"Received IP: {connect}")
+    tracker_id_control()
+    
+    try:
+        with open('network_credentials.txt', 'r') as file:
+            credentials_file = file.read()
+            
+        # Hvis filen indeholdende tracker ID'et står tomt
+        if '' == credentials_file:
+            print("[!] Network credentials file empty, please generate...")
+            ip_value = ConnectHandler.trackerConnection(TRACKER_ID)
+        # Hvis Tracker ID'et allerede er skabt for enheden
+        else:
+            for line in credentials_file.split('\n'):
+                if "SSID:" in line:
+                    ssid = line.split(':')[1].strip()
+                elif "PASS:" in line:
+                    password = line.split(':')[1].strip()
+
+            print(f"SSID: {ssid}, PASS: {password}")
+            captive_portal.ConnectHandler()
+            ip_value = captive_portal.ConnectHandler.activate(ssid, password)
+            
+    except OSError as e:
+        # Hvis filen ikke eksisterer
+        if errno.ENOENT == e.errno:
+            print("[!] Network credentials doesn't exist, please generate...")
+            ip_value = captive_portal.trackerConnection(TRACKER_ID)
+            
+        # Andre errors
+        else:
+            print("[!] Error: '%s' occured." % e)
+            ip_value = captive_portal.trackerConnection()
+    
+    print(f"Received IP: {ip_value}")
     
     time.sleep(2)
     
     MPU = Accelerometer()
     
     MPU.read()  # Start reading accelerometer data
+
 

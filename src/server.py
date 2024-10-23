@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 import mysql.connector as mysql
 from mysql.connector import Error, OperationalError
@@ -16,7 +17,7 @@ class DatabaseConnection:
             self.db = mysql.connect(
                 host="localhost",
                 user="tracker",
-                passwd="$MY_DB_PASSWORD",
+                passwd=os.getenv("MY_DB_PASSWORD"),
                 database="biltracker",
                 connection_timeout=300
             )
