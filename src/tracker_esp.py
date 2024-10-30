@@ -1,6 +1,5 @@
 from machine import I2C, Pin, UART
 import time
-import MPU6050
 import captive_portal
 import urequests
 import ujson as json
@@ -97,6 +96,26 @@ class GPS:
             decimal *= -1  # Convert to negative for South and West
         return decimal
 
+    def check_speed(self):
+        """Check the speed from the GPRMC sentence and return True if moving."""
+        new_msg = self.uart.readline()
+        if new_msg:
+            try:
+                nmea_sentence = new_msg.decode('utf-8').strip()
+                
+                print(nmea_sentence)
+                
+                fields = nmea_sentence.split(',')
+                # Check speed in GPRMC sentence (speed is in knots)
+                if nmea_sentence.startswith('$GPRMC') and len(fields) >= 8:
+                    speed_knots = float(fields[7]) if fields[7] else 0.0
+                    speed_kmh = speed_knots * 1.852
+                    print(speed_kmh)
+                    return speed_kmh > 0  # Moving if speed > 0
+            except Exception as e:
+                print("[!] Error while processing speed: ", str(e))
+        return False
+
     def read_gps(self):
         while True:
             new_msg = self.uart.readline()
@@ -146,76 +165,6 @@ class GPS:
             # Sleep briefly to avoid spamming the GPS module
             time.sleep(1)
 
-class Accelerometer:
-    def __init__(self):
-        # Set up the I2C interface
-        i2c = I2C(1, sda=Pin(8), scl=Pin(9))
-
-        # Set up the MPU6050 class 
-        self.mpu = MPU6050.MPU6050(i2c)
-
-        # Wake up the MPU6050 from sleep
-        self.mpu.wake()
-
-        self.gps = GPS()
-
-        # Flag to track if GPS data has been sent
-        self.gps_data_sent = False
-
-    def read(self):
-        while True:  # Loop continuously
-            current_accel = abs(self.mpu.read_accel_data())
-
-            print("Accel: %.2f" % current_accel)
-
-            # Check if the current acceleration exceeds the threshold
-            if current_accel > 0.24:  # Acceleration exceeds threshold
-                print("[+] Acceleration threshold exceeded, acquiring GPS data...")
-
-                if not self.gps_data_sent:
-                    # Get GPS data
-                    gps_data = self.gps.read_gps()
-
-                    if gps_data:
-                        # Send GPS data
-                        HTTPServer.send_data(type="send gps coordinates", gps=gps_data)
-                        self.gps_data_sent = True  # Mark that data has been sent
-
-                    # Start a grace period after sending GPS data
-                    start_time = time.time()
-
-                    # 5-second grace period
-                    while time.time() - start_time < 5:
-                        # Continuously check accelerometer data
-                        current_accel = abs(self.mpu.read_accel_data())
-                        print("Accel during grace period: %.2f" % current_accel)
-
-                        # If acceleration exceeds 0.0 during grace period, break out
-                        if current_accel > 0.0:
-                            print("[+] Acceleration is above 0.0 during grace period, allowing further GPS requests...")
-                            break
-                        
-                        time.sleep(0.5)
-
-                print("[+] Grace period ended, checking for acceleration drop...")
-
-                # After grace period, check if acceleration is still above threshold
-                if current_accel <= 0.0:
-                    print("[!] Acceleration dropped to 0.0, resetting GPS state.")
-                    self.gps_data_sent = False  # Reset for next GPS send
-
-            elif current_accel > 0.10 and self.gps_data_sent:
-                print("[+] Current acceleration is above 0.0, checking for new GPS data...")
-                # Keep requesting new GPS data
-                gps_data = self.gps.read_gps()
-
-                if gps_data:
-                    HTTPServer.send_data(type="send gps coordinates", gps=gps_data)  # Send GPS data while acceleration > 0.0
-
-            else:
-                print("[!] Current acceleration not above threshold, waiting for next movement...")
-            
-            time.sleep(0.5)  # Optional delay to avoid excessive processing
 
 if __name__ == "__main__":
     try:
@@ -251,10 +200,16 @@ if __name__ == "__main__":
     
     tracker_id_control()
     
-    time.sleep(2)
-    
-    MPU = Accelerometer()
-    
-    MPU.read()  # Start reading accelerometer data
+    gps_device = GPS()
 
+    while True:
 
+        if gps_device.check_speed():
+            gps_data = gps_device.read_gps()
+
+            if gps_data:
+                HTTPServer.send_data(type="send gps coordinates", gps=gps_data)
+            time.sleep(15)
+        else:
+            print("Car is stationary, not reading GPS.")
+            time.sleep(1)
