@@ -1,6 +1,8 @@
 import machine
 import time
 import os
+import urequests
+import json       
 
 # set up pins
 reset_button_pin = 13  # pin for button
@@ -11,6 +13,9 @@ led = machine.Pin(led_pin, machine.Pin.OUT)
 
 # path and filename of credentials
 file_path = 'reset_test.txt'
+
+TRACKER_ID = None
+SERVER_URL = "http://79.171.148.143/api"
 
 def delete_file():
     """Deletes the txt file."""
@@ -37,11 +42,24 @@ def monitor_button():
             press_duration += 1
             time.sleep(1)  # check every second
             
-            if press_duration >= 10:  # 10 seconds
+            if press_duration >= 10:  # 10 seconds, wifi reset
                 delete_file()
                 press_duration = 0  # reset duration after deletion
                 led.off()  # turn off LED before starting blink sequence
                 blink_led(5, 500)  # blink LED 5 times with 500ms intervals
+            
+            if press_duration >= 30:  # 30 seconds, full reset
+                data_packet = {
+                    'data': 'wipe password request',    
+                    'tracker_id': TRACKER_ID                
+                }
+                try:
+                    print(f"[+] Sending data: {json.dumps(data_packet)}")
+                    response = urequests.post(SERVER_URL, json=data_packet)
+                    response.close()  # free up resources
+                except Exception as e:
+                    print(f"Failed to send request: {e}")
+
         else:
             led.off()  # LED is off when button is not pressed
             press_duration = 0  # reset if button is released
