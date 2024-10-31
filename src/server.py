@@ -139,6 +139,16 @@ class DataHandler:
             else:
                 print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
 
+    def password_reset(self, tracker_id):
+        try:
+            query = "UPDATE tracker_enheder SET password = NULL WHERE tracker_id = %s"
+            self.db_connection.execute_query(query, (tracker_id,))
+            self.db_connection.commit()
+
+            return {"status": "success", "message": "Password reset procedure exited successfully"}, 200
+
+        except Exception:
+            return {"status": "error", "message": "Error executing password reset procedure."}, 500
 
 data_handler = DataHandler()
 @app.route('/', methods=['POST'])
@@ -173,6 +183,14 @@ def handle():
         case "tracker id request":
             result, status_code = data_handler.generate_tracker_id()
             return jsonify(result), status_code
+
+        case "wipe password request":
+            tracker_id = data.get('tracker_id')
+
+            if not tracker_id:
+                return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
+
+            result, status_code = data_handler.password_reset(tracker_id)
 
         case _:
             return {"status": "error", "message": "Error handeling received data"}, 500
