@@ -3,9 +3,11 @@ import time
 import captive_portal
 import urequests
 import ujson as json
+import os
 
 SERVER_URL = "http://79.171.148.143/api"
 TRACKER_ID = None
+
 
 class HTTPServer:
     def send_data(type=None, gps=None):
@@ -56,6 +58,20 @@ class HTTPServer:
                 print(f"Unhandled exception: {e}")
 
 
+        elif 'password reset procedure' == type:
+            
+            try:
+                data_packet = {
+                            'data': 'wipe password request',    
+                            'tracker_id': TRACKER_ID                
+                        }
+                        
+                print(f"[+] Sending data: {json.dumps(data_packet)}")
+                response = urequests.post(SERVER_URL, json=data_packet)
+                        
+            except Exception as e:
+                print(f"Unhandled exception: {e}")
+
 def tracker_id_control():
     global TRACKER_ID
     
@@ -83,6 +99,89 @@ def tracker_id_control():
         # Andre errors
         else:
             print("[!] Error: '%s' occured." % e)
+
+
+class ResetButton:
+    def __init__(self):
+        self.reset_button_pin = 13  # Pin for reset button
+        self.led_pin = 12           # Pin for LED
+        self.reset_button = Pin(self.reset_button_pin, Pin.IN, Pin.PULL_UP)
+        self.led = Pin(self.led_pin, Pin.OUT)
+        self.file_path = 'network_credentials.txt'
+        
+        self.press_start = None  # To track button press start time
+        self.reset_button.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=self.handle_button_press)
+        
+    def handle_button_press(self, pin):
+        """Interrupt handler to monitor the button press asynchronously."""
+        if pin.value() == 0:  # Button is pressed
+            self.press_start = time.time()
+            self.led.on()  # Turn LED on
+            self.monitor_button()  # Start monitoring button duration
+        else:  # Button released
+            press_duration = time.time() - self.press_start if self.press_start else 0
+            self.led.off()
+            
+            if 10 <= press_duration < 30:
+                self.perform_reset(level=1)
+            elif press_duration >= 30:
+                self.perform_reset(level=2)
+                
+            self.press_start = None  # Reset the press start time
+
+    def blink_led(self, times, interval_ms):
+        for _ in range(times):
+            self.led.on()
+            time.sleep_ms(interval_ms)
+            self.led.off()
+            time.sleep_ms(interval_ms)
+
+    def delete_file(self):
+        try:
+            os.remove(self.file_path)
+            print("File deleted.")
+        except OSError:
+            print("File does not exist or could not be deleted.")
+            
+    def perform_reset(self, level):
+        if level == 1:
+            self.delete_file()
+            self.blink_led(5, 250)
+        elif level == 2:
+            print("running password reset procedure")
+            HTTPServer.send_data(type="password reset procedure")
+            self.blink_led(5, 250)
+
+    def monitor_button(self):
+        press_duration = 0  # Duration counter
+        blinked_10s = False  # Flag for 10s blink
+        blinked_30s = False  # Flag for 30s blink
+
+        while self.reset_button.value() == 0:  # While button is pressed
+            press_duration = time.time() - self.press_start  # Update duration
+            
+            if press_duration >= 30 and not blinked_30s:  # If pressed for 30 seconds
+                self.led.off()
+                self.blink_led(5, 250)  # Blink for 30 seconds
+                self.perform_reset(level=2)  # Perform level 2 reset
+                blinked_30s = True  # Set flag to indicate the 30s blink has occurred
+                return  # Exit after handling the 30s reset
+
+            elif press_duration >= 10 and not blinked_10s:  # If pressed for 10 seconds
+                self.led.off()
+                self.blink_led(5, 250)  # Blink for 10 seconds
+                self.perform_reset(level=1)
+                blinked_10s = True  # Set flag to indicate the 10s blink has occurred
+
+            self.led.on()
+            time.sleep(1)  # Wait for a second before the next check
+
+        # Reset flags when the button is released
+        blinked_10s = False
+        blinked_30s = False
+        self.led.off()
+
+
 
 class GPS:
     def __init__(self):
@@ -197,6 +296,8 @@ if __name__ == "__main__":
             ip_value = captive_portal.trackerConnection()
     
     print(f"Received IP: {ip_value}")
+    
+    reset_button = ResetButton()
     
     tracker_id_control()
     
