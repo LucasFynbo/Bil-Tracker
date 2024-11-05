@@ -6,6 +6,11 @@ from bleak import BleakClient, BleakError
 
 URL = 'http://localhost:13371/coords'  # Adjust the URL if the Flask server is running on a different address or port
 
+# Create the main window
+window = tk.Tk()
+window.title("Coordinate Receiver")
+window.geometry("320x480")
+
 class CoordinatesHandling:
     def get_coordinates(self, tracker_id, password):
         try:
@@ -40,33 +45,49 @@ class CoordinatesHandling:
         map_widget.set_marker(x, y, text=f"({x:.6f}, {y:.6f})")
 
 class MainMenu:
-    def __init__(self, master, coords_handler):
-        self.master = master
-        self.coords_handler = coords_handler
-        self.client = None  # Bluetooth client
+    def __init__(self):
+        self.master = window
+        self.main_menu_frame = tk.Frame(self.master)
 
-        # Main Menu Frame
-        self.main_menu_frame = tk.Frame(master)
-        btn_track_location = tk.Button(self.main_menu_frame, text="Track Location", command=self.show_tracker_view, width=20, height=2)
-        btn_set_up_tracker = tk.Button(self.main_menu_frame, text="Set up Tracker", command=self.check_bluetooth_connection, width=20, height=2)
+        # Initialize handler instances without immediately creating frames
+        self.coords_handler = CoordinatesHandling()
+        self.locate_tracker = LocateTracker(self.master, self)
+        self.setup_tracker = SetupTracker(self.master, self)
+
+        # Main Menu Buttons
+        btn_track_location = tk.Button(self.main_menu_frame, text="Track Location", command=self.locate_tracker.show_locate_tracker_view, width=20, height=2)
+        # Use lambda to delay calling check_bluetooth_connection until button is clicked
+        btn_set_up_tracker = tk.Button(self.main_menu_frame, text="Set up Tracker", command=lambda: self.setup_tracker.check_bluetooth_connection(), width=20, height=2)
         btn_track_location.pack(pady=20)
         btn_set_up_tracker.pack(pady=20)
 
-        # Tracker View Frame
+    def show_main_menu(self):
+        # Show the main menu and hide the other frames directly via locate_tracker and setup_tracker attributes
+        self.main_menu_frame.pack(fill='both', expand=True)
+        self.locate_tracker.tracker_view_frame.pack_forget()
+        self.setup_tracker.setup_frame.pack_forget()
+
+class LocateTracker:
+    def __init__(self, master, main_menu):
+        # Create a dedicated frame for the tracker view
         self.tracker_view_frame = tk.Frame(master)
-        self.setup_tracker_widgets()
+        self.main_menu = main_menu
 
-        # Setup Tracker Frame
-        self.setup_frame = tk.Frame(master)
-        self.setup_widgets()
+        self.locate_tracker_widgets()  # Initialize widgets on this frame
 
-    def setup_tracker_widgets(self):
-        # Existing Tracker View Widgets...
+    def show_locate_tracker_view(self):
+        # Hide the main menu and setup frames, and show the tracker view frame
+        self.main_menu.main_menu_frame.pack_forget()
+        self.tracker_view_frame.pack(fill='both', expand=True)
+        self.main_menu.setup_tracker.setup_frame.pack_forget()  # Access setup_frame through setup_tracker
+
+    def locate_tracker_widgets(self):
+        # Create widgets on the tracker view frame
         label_tracker_id = tk.Label(self.tracker_view_frame, text="Enter Tracker ID:")
         label_tracker_id.pack(pady=5)
         self.entry_tracker_id = tk.Entry(self.tracker_view_frame)
         self.entry_tracker_id.pack(pady=5)
-        
+
         label_password = tk.Label(self.tracker_view_frame, text="Enter Password:")
         label_password.pack(pady=5)
         self.entry_password = tk.Entry(self.tracker_view_frame, show="*")
@@ -74,8 +95,9 @@ class MainMenu:
 
         btn_get_coordinates = tk.Button(self.tracker_view_frame, text="Get Coordinates", command=self.fetch_and_show_coordinates)
         btn_get_coordinates.pack(pady=10)
-        btn_back_to_menu = tk.Button(self.tracker_view_frame, text="Go Back", command=self.show_main_menu)
+        btn_back_to_menu = tk.Button(self.tracker_view_frame, text="Go Back", command=self.main_menu.show_main_menu)
         btn_back_to_menu.pack(pady=5)
+
 
         # Create a frame to hold the coordinate labels
         frame_coordinates = tk.Frame(self.tracker_view_frame)
@@ -96,8 +118,27 @@ class MainMenu:
         map_widget = TkinterMapView(self.tracker_view_frame, width=250, height=330)
         map_widget.pack(pady=10)
 
-    def setup_widgets(self):
-        # Widgets for setup
+    def fetch_and_show_coordinates(self):
+        tracker_id = self.entry_tracker_id.get()
+        password = self.entry_password.get()
+        if tracker_id and password:
+            x, y = self.coords_handler.get_coordinates(tracker_id, password)
+            if x is not None and y is not None:
+                self.coords_handler.show_coordinates(x, y)
+        else:
+            messagebox.showwarning("Input Error", "Please enter both Tracker ID and Password.")
+
+class SetupTracker:
+    def __init__(self, master, main_menu):
+        # Create a dedicated frame for the setup view
+        self.setup_frame = tk.Frame(master)
+        self.main_menu = main_menu
+        self.client = None  # Bluetooth client
+
+        self.setup_tracker_widgets()  # Initialize widgets on this frame
+
+    def setup_tracker_widgets(self):
+        # Create widgets on the setup frame
         label_wifi_ssid = tk.Label(self.setup_frame, text="WiFi SSID:")
         label_wifi_ssid.pack(pady=5)
         self.entry_wifi_ssid = tk.Entry(self.setup_frame)
@@ -116,11 +157,20 @@ class MainMenu:
         btn_submit_setup = tk.Button(self.setup_frame, text="Submit Setup", command=self.submit_setup)
         btn_submit_setup.pack(pady=10)
 
-        btn_back_from_setup = tk.Button(self.setup_frame, text="Go Back", command=self.show_main_menu)
+        btn_back_from_setup = tk.Button(self.setup_frame, text="Go Back", command=self.main_menu.show_main_menu)
         btn_back_from_setup.pack(pady=5)
 
-        # Hide setup frame initially
-        self.setup_frame.pack_forget()
+    def check_bluetooth_connection(self):
+        if self.client and self.client.is_connected:
+            self.show_setup_screen()
+        else:
+            messagebox.showwarning("No Connection", "No active Bluetooth connection to a device, please connect.")
+
+    def show_setup_screen(self):
+        # Hide the main menu and tracker frames, and show the setup frame
+        self.main_menu.main_menu_frame.pack_forget()
+        self.setup_frame.pack(fill='both', expand=True)
+        self.main_menu.tracker_view_frame.pack_forget()
 
     async def connect_to_tracker(self, device_address):
         try:
@@ -130,16 +180,6 @@ class MainMenu:
         except BleakError as e:
             messagebox.showerror("Connection Error", f"Failed to connect: {e}")
             return False
-
-    def check_bluetooth_connection(self):
-        if self.client and self.client.is_connected:
-            self.show_setup_screen()
-        else:
-            messagebox.showwarning("No Connection", "No active Bluetooth connection to a device, please connect.")
-
-    def show_setup_screen(self):
-        self.main_menu_frame.pack_forget()
-        self.setup_frame.pack(fill='both', expand=True)
 
     async def submit_setup(self):
         if self.client and self.client.is_connected:
@@ -159,38 +199,11 @@ class MainMenu:
         else:
             messagebox.showwarning("No Connection", "No active Bluetooth connection to a device, please connect.")
 
-    def show_main_menu(self):
-        self.main_menu_frame.pack(fill='both', expand=True)
-        self.setup_frame.pack_forget()
-        self.tracker_view_frame.pack_forget()
 
-    def show_tracker_view(self):
-        self.main_menu_frame.pack_forget()
-        self.tracker_view_frame.pack(fill='both', expand=True)
-        self.setup_frame.pack_forget()
+if __name__ == "__main__":
+    main_menu = MainMenu()
+    # Show the main menu at startup
+    main_menu.show_main_menu()
 
-    def fetch_and_show_coordinates(self):
-        tracker_id = self.entry_tracker_id.get()
-        password = self.entry_password.get()
-        if tracker_id and password:
-            x, y = self.coords_handler.get_coordinates(tracker_id, password)
-            if x is not None and y is not None:
-                self.coords_handler.show_coordinates(x, y)
-        else:
-            messagebox.showwarning("Input Error", "Please enter both Tracker ID and Password.")
-
-
-# Create the main window
-window = tk.Tk()
-window.title("Coordinate Receiver")
-window.geometry("320x480")
-
-# Initialize the coordinate handler and main menu
-coords_handler = CoordinatesHandling()
-main_menu = MainMenu(window, coords_handler)
-
-# Show the main menu at startup
-main_menu.show_main_menu()
-
-# Start the GUI loop
-window.mainloop()
+    # Start the GUI loop
+    window.mainloop()
