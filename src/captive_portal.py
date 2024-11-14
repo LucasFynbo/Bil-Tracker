@@ -7,8 +7,8 @@ ssid_value:str = None
 pass_value:str = None
 
 class AccessPoint:
-    def __init__(self, tracker_id):
-        self.ssid = tracker_id
+    def __init__(self):
+        self.ssid = "Tracker Setup"
         self.password = "Wpa2Pskx31!"
     
     def activate(self):
@@ -16,7 +16,7 @@ class AccessPoint:
         ap.active(True)
         time.sleep(2)
         ap.config(essid=self.ssid,password=self.password, authmode=4) 
-        ap.config(max_clients=1)
+        ap.config(max_clients=254)
         ap.config(dhcp_hostname="tracker")
 
         ap.ifconfig(('10.0.0.1', '255.255.255.0', '10.0.0.1', '10.0.0.1'))
@@ -157,11 +157,10 @@ class WebSocket:
         self.serv_sock.close()    
     
 class ConnectHandler:
-    def __init__(self):
+    def activate(ssid, password):
         ap = network.WLAN(network.AP_IF)
         ap.active(False)
-
-    def activate(ssid, password):
+        
         sta_if = network.WLAN(network.STA_IF)
 
         if not sta_if.isconnected():
@@ -206,10 +205,9 @@ def trackerConnection(tracker_id):
         
     print(ssid_value, pass_value)
     
-    connect_to_wifi = ConnectHandler()
-    return connect_to_wifi.activate(ssid_value, pass_value)
+    connect_to_wifi = ConnectHandler(ssid_value, pass_value)
+    return connect_to_wifi.activate()
 
 if __name__ == "__main__":
-    trackerConnection("Tracker1531")
-
+    trackerConnection("Tracker%1531")
 

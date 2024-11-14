@@ -2,15 +2,99 @@ from machine import I2C, Pin, UART
 import time
 import captive_portal
 import urequests
+
+import aioble
+import bluetooth
+import struct
+import uasyncio as asyncio
+
 import ujson as json
 import os
+from micropython import const
 
 SERVER_URL = "http://79.171.148.143/api"
 TRACKER_ID = None
 
+_TRACKER_SERVICE_UUID = bluetooth.UUID("4f450d8c-b4fa-4ee6-b131-3161f2e82aac")
+_CHARACTERISTIC_UUID_WIFI_SSID = bluetooth.UUID("841677b2-99fe-4175-9fc9-033ac6c85a54")
+_CHARACTERISTIC_UUID_WIFI_PASSWORD = bluetooth.UUID("dfc2c17e-9f7f-480e-82e4-b540a21ebf0b")
+_CHARACTERISTIC_UUID_TRACKER_PASSWORD = bluetooth.UUID("1370af71-05bd-42cd-9604-72667f439c42")
+_ADV_INTERVAL_US = const(100000)
 
+
+class BLEPeripheral:
+    def __init__(self):
+        
+        # Define BLE service and characteristics with explicit permissions
+        self.device_service = aioble.Service(_TRACKER_SERVICE_UUID)
+
+        # Define characteristics with write permissions
+        self.ssid_characteristic = aioble.Characteristic(self.device_service,
+                                                         _CHARACTERISTIC_UUID_WIFI_SSID,
+                                                         write=True, read=True, notify=True, capture=True)
+        
+        self.ssid_password_characteristic = aioble.Characteristic(self.device_service,
+                                                                  _CHARACTERISTIC_UUID_WIFI_PASSWORD,
+                                                                  write=True, read=True, notify=True, capture=True)
+        
+        self.user_password_characteristic = aioble.Characteristic(self.device_service,
+                                                                  _CHARACTERISTIC_UUID_TRACKER_PASSWORD,
+                                                                  write=True, read=True, notify=True, capture=True)
+
+        # Register the service
+        aioble.register_services(self.device_service)
+
+    async def start_advertising(self):
+        await asyncio.sleep(1)  # Add a delay to ensure the BLE stack is initialized
+
+        while True:
+            try:
+                print("Starting advertisement...")
+                async with await aioble.advertise(
+                        _ADV_INTERVAL_US,
+                        name='car_tracker',
+                        services=[_TRACKER_SERVICE_UUID]
+                ) as connection:
+
+                    # Log the connection
+                    client_mac = connection.device.addr
+                    print(f"Connected to MAC: {client_mac}")
+
+                    while connection.is_connected():
+                        await asyncio.sleep_ms(1000)
+
+                    print("Client disconnected")
+
+            except Exception as e:
+                print(f"Connection error: {e}")
+                await asyncio.sleep(2)
+    
+    async def monitor_char_value(self):
+        while True:
+            _, SSID_VALUE_BYTE = await self.ssid_characteristic.written(timeout_ms=0)
+            print(SSID_VALUE_BYTE)
+            
+            _, SSID_PASS_VALUE_BYTE = await self.ssid_password_characteristic.written(timeout_ms=0)
+            print(SSID_PASS_VALUE_BYTE)
+            
+            _, TRACKER_PASS_VALUE_BYTE = await self.user_password_characteristic.written(timeout_ms=0)
+            print(TRACKER_PASS_VALUE_BYTE)
+            
+            if SSID_VALUE_BYTE and SSID_PASS_VALUE_BYTE and TRACKER_PASS_VALUE_BYTE:
+                print("Recieved characteristic values, processing...")
+                
+                with open('network_credentials.txt', 'w') as file:
+                        file.write(f"SSID:{SSID_VALUE_BYTE.decode('utf-8')}\n")
+                        file.write(f"PASS:{SSID_PASS_VALUE_BYTE.decode('utf-8')}")
+                 
+                # Uncomment below statement when vsphere up and running
+                # HTTPServer.send_data(type="tracker password update", tracker_password=TRACKER_PASS_VALUE_BYTE.decode('utf-8'))
+            
+            await asyncio.sleep(1)
+            
+        
 class HTTPServer:
-    def send_data(type=None, gps=None):
+    def send_data(type=None, gps=None, tracker_password=None):
         global TRACKER_ID
 
         if 'tracker id request' == type:
@@ -58,6 +142,21 @@ class HTTPServer:
                 print(f"Unhandled exception: {e}")
 
 
+        elif 'tracker password update' == type:
+            
+            try:                
+                data_packet = {
+                    'data': 'tracker password update',	
+                    'tracker_id': TRACKER_ID,
+                    'tracker_password': tracker_password,
+                }
+
+                print(f"[+] Sending data: {json.dumps(data_packet)}")
+                response = urequests.post(SERVER_URL, json=data_packet)
+
+            except Exception as e:
+                print(f"Unhandled exception: {e}")
+
         elif 'password reset procedure' == type:
             
             try:
@@ -71,34 +170,6 @@ class HTTPServer:
                         
             except Exception as e:
                 print(f"Unhandled exception: {e}")
-
-def tracker_id_control():
-    global TRACKER_ID
-    
-    # Kontroller om der allerede er genereret et Tracker ID for enheden
-    try:
-        with open('tracker_id.txt', 'r') as file:
-            credentials_file = file.read()
-        
-        # Hvis filen indeholdende tracker ID'et står tomt
-        if '' == credentials_file:
-            print("[!] Tracker ID file empty, requesting...")
-            HTTPServer.send_data(type='tracker id request')
-        # Hvis Tracker ID'et allerede er skabt for enheden
-        else:
-            for line in credentials_file.split('\n'):
-                if "TrackerID:" in line:
-                    TRACKER_ID = line.split(':')[1].strip()
-            print(f"[+] Tracker ID: {TRACKER_ID}")
-            
-    except OSError as e:
-        # Hvis filen ikke eksisterer
-        if errno.ENOENT == e.errno:
-            print("[!] Tracker ID does not exist, requesting...")
-            HTTPServer.send_data(type='tracker id request')
-        # Andre errors
-        else:
-            print("[!] Error: '%s' occured." % e)
 
 
 class ResetButton:
@@ -180,7 +251,6 @@ class ResetButton:
         blinked_10s = False
         blinked_30s = False
         self.led.off()
-
 
 
 class GPS:
@@ -265,7 +335,36 @@ class GPS:
             time.sleep(1)
 
 
-if __name__ == "__main__":
+def tracker_id_control():
+    global TRACKER_ID
+    
+    # Kontroller om der allerede er genereret et Tracker ID for enheden
+    try:
+        with open('tracker_id.txt', 'r') as file:
+            credentials_file = file.read()
+        
+        # Hvis filen indeholdende tracker ID'et står tomt
+        if '' == credentials_file:
+            print("[!] Tracker ID file empty, requesting...")
+            HTTPServer.send_data(type='tracker id request')
+        # Hvis Tracker ID'et allerede er skabt for enheden
+        else:
+            for line in credentials_file.split('\n'):
+                if "TrackerID:" in line:
+                    TRACKER_ID = line.split(':')[1].strip()
+            print(f"[+] Tracker ID: {TRACKER_ID}")
+            
+    except OSError as e:
+        # Hvis filen ikke eksisterer
+        if errno.ENOENT == e.errno:
+            print("[!] Tracker ID does not exist, requesting...")
+            HTTPServer.send_data(type='tracker id request')
+        # Andre errors
+        else:
+            print("[!] Error: '%s' occured." % e)
+
+
+async def main():
     try:
         with open('network_credentials.txt', 'r') as file:
             credentials_file = file.read()
@@ -273,7 +372,14 @@ if __name__ == "__main__":
         # Hvis filen indeholdende network credentials står tomt
         if '' == credentials_file:
             print("[!] Network credentials file empty, please generate...")
-            ip_value = captive_portal.trackerConnection()
+            ble = BLEPeripheral()
+            await asyncio.gather(
+                asyncio.create_task(ble.start_advertising()),
+                asyncio.create_task(ble.monitor_char_value()),
+            )
+            
+            # Use connection script here with the written GATT information (Implement later)
+            
         else:
             for line in credentials_file.split('\n'):
                 if "SSID:" in line:
@@ -288,12 +394,25 @@ if __name__ == "__main__":
         # Hvis filen ikke eksisterer
         if errno.ENOENT == e.errno:
             print("[!] Network credentials doesn't exist, please generate...")
-            ip_value = captive_portal.trackerConnection()
+            ble = BLEPeripheral()
+            await asyncio.gather(
+                asyncio.create_task(ble.start_advertising()),
+                asyncio.create_task(ble.monitor_char_value()),
+            )
+            
+            
+            # Use connection script here with the written GATT information (Implement later)
             
         # Andre errors
         else:
             print("[!] Error: '%s' occured." % e)
-            ip_value = captive_portal.trackerConnection()
+            ble = BLEPeripheral()
+            await asyncio.gather(
+                asyncio.create_task(ble.start_advertising()),
+                asyncio.create_task(ble.monitor_char_value()),
+            )
+            
+            # Use connection script here with the written GATT information (Implement later)
     
     print(f"Received IP: {ip_value}")
     
@@ -304,7 +423,6 @@ if __name__ == "__main__":
     gps_device = GPS()
 
     while True:
-
         if gps_device.check_speed():
             gps_data = gps_device.read_gps()
 
@@ -314,3 +432,6 @@ if __name__ == "__main__":
         else:
             print("Car is stationary, not reading GPS.")
             time.sleep(1)
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -2,14 +2,25 @@ import tkinter as tk
 from tkinter import messagebox
 import requests
 from tkintermapview import TkinterMapView
-from bleak import BleakClient, BleakError
 
-URL = 'http://localhost:13371/coords'  # Adjust the URL if the Flask server is running on a different address or port
+import asyncio
+import threading
+from bleak import BleakScanner, BleakClient
+import queue
+import time
+
+URL = 'http://79.171.148.143/api'  # Adjust the URL if the Flask server is running on a different address or port
 
 # Create the main window
 window = tk.Tk()
 window.title("Coordinate Receiver")
 window.geometry("320x480")
+
+CHARACTERISTIC_UUID_WIFI_SSID = "841677b2-99fe-4175-9fc9-033ac6c85a54"
+CHARACTERISTIC_UUID_WIFI_PASSWORD = "dfc2c17e-9f7f-480e-82e4-b540a21ebf0b"
+CHARACTERISTIC_UUID_TRACKER_PASSWORD = "1370af71-05bd-42cd-9604-72667f439c42"
+
+TARGET_DEVICE_NAME = "car_tracker"
 
 class CoordinatesHandling:
     def get_coordinates(self, tracker_id, password):
@@ -45,19 +56,17 @@ class CoordinatesHandling:
         map_widget.set_marker(x, y, text=f"({x:.6f}, {y:.6f})")
 
 class MainMenu:
-    def __init__(self):
-        self.master = window
-        self.main_menu_frame = tk.Frame(self.master)
+    def __init__(self, master):
+        self.main_menu_frame = tk.Frame(master)
 
         # Initialize handler instances without immediately creating frames
         self.coords_handler = CoordinatesHandling()
-        self.locate_tracker = LocateTracker(self.master, self)
-        self.setup_tracker = SetupTracker(self.master, self)
+        self.locate_tracker = LocateTracker(master, self)
+        self.setup_tracker = SetupTracker(master, self)
 
         # Main Menu Buttons
         btn_track_location = tk.Button(self.main_menu_frame, text="Track Location", command=self.locate_tracker.show_locate_tracker_view, width=20, height=2)
-        # Use lambda to delay calling check_bluetooth_connection until button is clicked
-        btn_set_up_tracker = tk.Button(self.main_menu_frame, text="Set up Tracker", command=lambda: self.setup_tracker.check_bluetooth_connection(), width=20, height=2)
+        btn_set_up_tracker = tk.Button(self.main_menu_frame, text="Set up Tracker", command=self.setup_tracker.queue_ble_scan, width=20, height=2)
         btn_track_location.pack(pady=20)
         btn_set_up_tracker.pack(pady=20)
 
@@ -133,9 +142,15 @@ class SetupTracker:
         # Create a dedicated frame for the setup view
         self.setup_frame = tk.Frame(master)
         self.main_menu = main_menu
-        self.client = None  # Bluetooth client
+        self.device_list = []
+        
+        self.ble_to_main_queue = queue.Queue()
+        self.client = None
 
         self.setup_tracker_widgets()  # Initialize widgets on this frame
+
+        self.ble_thread = threading.Thread(target=self.ble_thread_loop)
+        self.ble_thread.start()
 
     def setup_tracker_widgets(self):
         # Create widgets on the setup frame
@@ -160,48 +175,101 @@ class SetupTracker:
         btn_back_from_setup = tk.Button(self.setup_frame, text="Go Back", command=self.main_menu.show_main_menu)
         btn_back_from_setup.pack(pady=5)
 
-    def check_bluetooth_connection(self):
-        if self.client and self.client.is_connected:
-            self.show_setup_screen()
-        else:
-            messagebox.showwarning("No Connection", "No active Bluetooth connection to a device, please connect.")
+    def ble_thread_loop(self):
+        """Runs in a separate thread, manages the asyncio event loop."""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
 
-    def show_setup_screen(self):
+        try:
+            self.loop.run_forever()
+        except Exception as e:
+            print("Error in BLE thread loop:", e)
+        finally:
+            self.loop.close()
+
+    def queue_ble_scan(self):
+        """Queue a BLE scan task from the main Tkinter thread."""
+        asyncio.run_coroutine_threadsafe(self.bluetooth_scan(), self.loop)
+
+    async def bluetooth_scan(self):
+        """Async Bluetooth scanning function."""
+        self.device_list = await BleakScanner.discover()
+        target_device = None
+
+        for device in self.device_list:
+            print(f"Found device: {device.name} ({device.address})")
+            if device.name == TARGET_DEVICE_NAME:
+                target_device = device
+                break
+
+        if target_device is None:
+            print(f"Device {TARGET_DEVICE_NAME} not found.")
+            messagebox.showerror("Connection Error", f"Device {TARGET_DEVICE_NAME} not found.")
+            return
+        
+        print(f"Connecting to device {TARGET_DEVICE_NAME} ({target_device.address})...")
+        self.client = BleakClient(target_device.address)
+
+        # Try connecting and then display the setup screen if successful
+        try:
+            await self.client.connect()
+            if self.client.is_connected:
+                print(f"Successfully connected to {TARGET_DEVICE_NAME}!")
+                await self.show_setup_screen()  # Move to setup screen upon successful connection
+            else:
+                messagebox.showerror("Connection Error", f"Failed to connect to {TARGET_DEVICE_NAME}.")
+        except Exception as e:
+            print(f"Failed to connect to {TARGET_DEVICE_NAME}: {str(e)}")
+            messagebox.showerror("Connection Error", f"Failed to connect to {TARGET_DEVICE_NAME}: {str(e)}")
+
+    async def show_setup_screen(self):
         # Hide the main menu and tracker frames, and show the setup frame
         self.main_menu.main_menu_frame.pack_forget()
         self.setup_frame.pack(fill='both', expand=True)
-        self.main_menu.tracker_view_frame.pack_forget()
 
-    async def connect_to_tracker(self, device_address):
+    def submit_setup(self):
+        asyncio.run_coroutine_threadsafe(self.write_to_gatt_services(), self.loop)
+
+    async def write_to_gatt_services(self):
+        """Writes Wi-Fi and tracker credentials to the device's GATT services."""
+        ssid = self.entry_wifi_ssid.get()
+        password = self.entry_wifi_password.get()
+        tracker_password = self.entry_tracker_password.get()
+
+        # Debug: Log the values being written
+        print(f"SSID: {ssid}, Password: {password}, Tracker Password: {tracker_password}")
+
         try:
-            self.client = BleakClient(device_address)
-            await self.client.connect()
-            return True
-        except BleakError as e:
-            messagebox.showerror("Connection Error", f"Failed to connect: {e}")
-            return False
+            # Ensure the client is connected before writing
+            if self.client.is_connected:
+                print("Client is connected, writing to GATT services...")
 
-    async def submit_setup(self):
+                # Write each characteristic
+                await self.client.write_gatt_char(CHARACTERISTIC_UUID_WIFI_SSID, ssid.encode())
+                await self.client.write_gatt_char(CHARACTERISTIC_UUID_WIFI_PASSWORD, password.encode())
+                await self.client.write_gatt_char(CHARACTERISTIC_UUID_TRACKER_PASSWORD, tracker_password.encode())
+
+                print("GATT services written successfully.")
+
+                # Show success message and return to the main menu
+                messagebox.showinfo("Setup Successful", "Configuration completed successfully.")
+                self.close_setup_screen()
+            else:
+                print("Client is not connected.")
+                messagebox.showerror("Setup Error", "Device is not connected.")
+        except Exception as e:
+            print(f"Write error: {str(e)}")
+            messagebox.showerror("Setup Error", f"Failed to write to GATT services: {str(e)}")
+
+    def close_setup_screen(self):
+        """Close setup frame and return to main menu."""
+        self.setup_frame.pack_forget()
+        self.main_menu.show_main_menu()
         if self.client and self.client.is_connected:
-            wifi_ssid = self.entry_wifi_ssid.get()
-            wifi_password = self.entry_wifi_password.get()
-            tracker_password = self.entry_tracker_password.get()
-
-            # Send these values back to the connected tracker via Bluetooth
-            try:
-                await self.client.write_gatt_char("characteristic_uuid_for_ssid", wifi_ssid.encode())
-                await self.client.write_gatt_char("characteristic_uuid_for_password", wifi_password.encode())
-                await self.client.write_gatt_char("characteristic_uuid_for_tracker_password", tracker_password.encode())
-
-                messagebox.showinfo("Setup Complete", "Tracker has been successfully set up.")
-            except BleakError as e:
-                messagebox.showerror("Error", f"Failed to send data to tracker: {e}")
-        else:
-            messagebox.showwarning("No Connection", "No active Bluetooth connection to a device, please connect.")
-
+            asyncio.run_coroutine_threadsafe(self.client.disconnect(), self.loop)
 
 if __name__ == "__main__":
-    main_menu = MainMenu()
+    main_menu = MainMenu(window)
     # Show the main menu at startup
     main_menu.show_main_menu()
 
