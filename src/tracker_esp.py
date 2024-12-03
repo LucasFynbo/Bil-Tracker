@@ -372,16 +372,17 @@ async def main():
         # Hvis filen indeholdende network credentials står tomt
         if '' == credentials_file:
             print("[!] Network credentials file empty, please generate...")
+            
+            # TODO: Ændre dette til at være en function i sig selv, undgår kode repetition
             ble = BLEPeripheral()
             await asyncio.gather(
                 asyncio.create_task(ble.start_advertising()),
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
-            # Use connection script here with the written GATT information (Implement later)
-            
         else:
             for line in credentials_file.split('\n'):
+                # TODO: Ændre til at bruge YAML features til at opfange key/value værdien
                 if "SSID:" in line:
                     ssid = line.split(':')[1].strip()
                 elif "PASS:" in line:
@@ -400,9 +401,6 @@ async def main():
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
-            
-            # Use connection script here with the written GATT information (Implement later)
-            
         # Andre errors
         else:
             print("[!] Error: '%s' occured." % e)
@@ -411,8 +409,6 @@ async def main():
                 asyncio.create_task(ble.start_advertising()),
                 asyncio.create_task(ble.monitor_char_value()),
             )
-            
-            # Use connection script here with the written GATT information (Implement later)
     
     print(f"Received IP: {ip_value}")
     
