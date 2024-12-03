@@ -111,28 +111,24 @@ class DataHandler:
             return {"status": "error", "message": "Error receiving coordinates"}, 500
 
     def generate_tracker_id(self):
-        success = 0
-
-        while 0 == success:
-            # String generation
-            rtal = secrets.choice(range(10000, 99999)) # Device id skabes, dette er en blot en streng af tal.
+        while True:
+            rtal = secrets.choice(range(10000, 99999))
             tracker_id = ('Tracker#' + str(rtal))
 
-            # Tjek MySQL db om der et tracker id som er i forvejen genereret.
             query = "SELECT * FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
             result = self.db_connection.fetchone()
 
             if result is None:
-                # Input generated string i MySQL
                 try:
                     query = "INSERT INTO Tracker_enheder (Tracker_id) VALUES (%s)"
                     self.db_connection.execute_query(query, (tracker_id,))
                     self.db_connection.commit()
 
                     print('[+] Device ID & Password successfully generated: %s' % (tracker_id))
-                    success = 1
-                    return {"status": "success", "message": "Successfully generated tracker identification", "tracker_id": tracker_id}, 200
+                    return {"status": "success", 
+                            "message": "Successfully generated tracker identification", 
+                            "tracker_id": tracker_id}, 200
 
                 except Exception as e:
                     print(f"Error generating tracker identification: {e}")
