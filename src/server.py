@@ -101,11 +101,17 @@ class DataHandler:
             if not if_exist:
                 return {"status": "error", "message": "Tracker identification not found"}, 404
 
-            query = "SELECT Koordinater FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
             self.db_connection.execute_query(query, (tracker_id,))
-            coords = self.db_connection.fetchone_column("Koordinater")
+            latitude = self.db_connection.fetchone_column("latitude")
 
-            return {"status": "success", "message": "Received coordinates successfully", "coords": coords}, 200
+            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+            self.db_connection.execute_query(query, (tracker_id,))
+            longitude = self.db_connection.fetchone_column("longitude")
+
+            return {"status": "success", 
+                    "message": "Received coordinates successfully", 
+                    "longitude": longitude, "latitude": latitude}, 200
 
         except Exception:
             return {"status": "error", "message": "Error receiving coordinates"}, 500
