@@ -1,4 +1,4 @@
-from machine import I2C, Pin, UART
+from machine import I2C, Pin, UART, reset
 import time
 import captive_portal
 import urequests
@@ -11,6 +11,7 @@ import uasyncio as asyncio
 import ujson as json
 import os
 from micropython import const
+
 
 SERVER_URL = "http://79.171.148.143/api"
 TRACKER_ID = None
@@ -80,12 +81,25 @@ class BLEPeripheral:
             _, TRACKER_PASS_VALUE_BYTE = await self.user_password_characteristic.written(timeout_ms=0)
             print(TRACKER_PASS_VALUE_BYTE)
             
+            
+            
             if SSID_VALUE_BYTE and SSID_PASS_VALUE_BYTE and TRACKER_PASS_VALUE_BYTE:
                 print("Recieved characteristic values, processing...")
                 
+                credentials = {
+                    "SSID": SSID_VALUE_BYTE.decode('utf-8'),
+                    "PASS": SSID_PASS_VALUE_BYTE.decode('utf-8')
+                }
+                
+                tracker_password = {
+                    "Tracker_pass": TRACKER_PASS_VALUE_BYTE.decode('utf-8'),
+                }
+                
                 with open('network_credentials.txt', 'w') as file:
-                        file.write(f"SSID:{SSID_VALUE_BYTE.decode('utf-8')}\n")
-                        file.write(f"PASS:{SSID_PASS_VALUE_BYTE.decode('utf-8')}")
+                    json.dump(credentials, file)
+                    
+                with open('temp_tracker_password.txt', 'w') as file:
+                    json.dump(tracker_password, file)
                  
                 # Uncomment below statement when vsphere up and running
                 # HTTPServer.send_data(type="tracker password update", tracker_password=TRACKER_PASS_VALUE_BYTE.decode('utf-8'))
@@ -94,7 +108,7 @@ class BLEPeripheral:
             
         
 class HTTPServer:
-    def send_data(type=None, gps=None, tracker_password=None):
+    def send_data(type=None, data=None):
         global TRACKER_ID
 
         if 'tracker id request' == type:
@@ -113,8 +127,12 @@ class HTTPServer:
                 if response_data['status'] == 'success':
                     TRACKER_ID = response_data['tracker_id']
 
+                    tracker_id = {
+                        "Tracker_id": TRACKER_ID,
+                    }		
+
                     with open('tracker_id.txt', 'w') as file:
-                        file.write(f"TrackerID:{TRACKER_ID}")
+                        json.dump(tracker_id, file)
 
                     print("[+] Tracker id request successfully handled")
 
@@ -130,8 +148,8 @@ class HTTPServer:
             try:                
                 data_packet = {
                     'data': 'received coords',	
-                    'coords_lat': f"{gps[0]}",
-                    'coords_long': f"{gps[1]}",
+                    'coords_lat': f"{data[0]}",
+                    'coords_long': f"{data[1]}",
                     'tracker_id': TRACKER_ID				
                 }
 
@@ -148,11 +166,13 @@ class HTTPServer:
                 data_packet = {
                     'data': 'tracker password update',	
                     'tracker_id': TRACKER_ID,
-                    'tracker_password': tracker_password,
+                    'tracker_password': data,
                 }
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
+
+                os.remove('temp_tracker_password.txt')
 
             except Exception as e:
                 print(f"Unhandled exception: {e}")
@@ -161,7 +181,7 @@ class HTTPServer:
             
             try:
                 data_packet = {
-                            'data': 'wipe password request',    
+                            'data': 'reset password request',    
                             'tracker_id': TRACKER_ID                
                         }
                         
@@ -216,10 +236,17 @@ class ResetButton:
             
     def perform_reset(self, level):
         if level == 1:
+            print("[!] Performing level 1 reset")
+            
             self.delete_file()
             self.blink_led(5, 250)
         elif level == 2:
-            print("running password reset procedure")
+            print("[!] Performing level 2 reset")
+            
+            print("Deleting wifi credentials")
+            self.delete_file()
+            
+            print("Running password reset procedure")
             HTTPServer.send_data(type="password reset procedure")
             self.blink_led(5, 250)
 
@@ -349,9 +376,9 @@ def tracker_id_control():
             HTTPServer.send_data(type='tracker id request')
         # Hvis Tracker ID'et allerede er skabt for enheden
         else:
-            for line in credentials_file.split('\n'):
-                if "TrackerID:" in line:
-                    TRACKER_ID = line.split(':')[1].strip()
+            tracker_id = json.loads(tracker_id)
+            TRACKER_ID = tracker_id.get("Tracker_id")
+
             print(f"[+] Tracker ID: {TRACKER_ID}")
             
     except OSError as e:
@@ -363,6 +390,17 @@ def tracker_id_control():
         else:
             print("[!] Error: '%s' occured." % e)
 
+def send_password():
+    try:
+        with open('temp_tracker_password.txt', 'r') as file:
+            temp_tracker_password = file.read()
+
+            tracker_password = json.loads(temp_tracker_password)
+            HTTPServer.send_data(type='tracker password update', tracker_password=tracker_password)
+        
+    except OSError:
+        print()
+
 
 async def main():
     try:
@@ -372,24 +410,24 @@ async def main():
         # Hvis filen indeholdende network credentials står tomt
         if '' == credentials_file:
             print("[!] Network credentials file empty, please generate...")
-            
-            # TODO: Ændre dette til at være en function i sig selv, undgår kode repetition
             ble = BLEPeripheral()
             await asyncio.gather(
                 asyncio.create_task(ble.start_advertising()),
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
+            reset()
+            
         else:
-            for line in credentials_file.split('\n'):
-                # TODO: Ændre til at bruge YAML features til at opfange key/value værdien
-                if "SSID:" in line:
-                    ssid = line.split(':')[1].strip()
-                elif "PASS:" in line:
-                    password = line.split(':')[1].strip()
+            credentials = json.loads(credentials_file)
+            ssid = credentials.get("SSID")
+            password = credentials.get("PASS")
 
-            print(f"SSID: {ssid}, PASS: {password}")
-            ip_value = captive_portal.ConnectHandler.activate(ssid, password)
+            if ssid and password:
+                print(f"SSID: {ssid}, PASS: {password}")
+                ip_value = captive_portal.ConnectHandler.activate(ssid, password)
+            else:
+                print("[!] Network credentials are invalid or incomplete.")
             
     except OSError as e:
         # Hvis filen ikke eksisterer
@@ -401,6 +439,9 @@ async def main():
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
+            
+            reset()
+            
         # Andre errors
         else:
             print("[!] Error: '%s' occured." % e)
@@ -409,12 +450,16 @@ async def main():
                 asyncio.create_task(ble.start_advertising()),
                 asyncio.create_task(ble.monitor_char_value()),
             )
+            
+            reset()
     
     print(f"Received IP: {ip_value}")
     
     reset_button = ResetButton()
     
     tracker_id_control()
+    
+    send_password()
     
     gps_device = GPS()
 
