@@ -87,7 +87,7 @@ class DataHandler:
             return {"status": "success", "message": "Coordinates insertion successful"}, 200
 
         except Exception as e:
-            print(f"exception:", e)
+            print(f"Exception in received_coords:", e)
             self.db_connection.rollback()
             return {"status": "error", "message": "Error during coordinates insertion"}, 500
 
@@ -105,10 +105,11 @@ class DataHandler:
             self.db_connection.execute_query(query, (tracker_id,))
             coords = self.db_connection.fetchone_column("Koordinater")
 
-            return {"status": "success", "message": "Received coordinates successfully", "coords": coords}, 200
+            return {"status": "success", "message": "Retrieved coordinates successfully", "coords": coords}, 200
 
-        except Exception:
-            return {"status": "error", "message": "Error receiving coordinates"}, 500
+        except Exception as e:
+            print(f"Exception in get_coords:", e)
+            return {"status": "error", "message": "Error retrieving coordinate data"}, 500
 
     def generate_tracker_id(self):
         while True:
@@ -131,19 +132,27 @@ class DataHandler:
                             "tracker_id": tracker_id}, 200
 
                 except Exception as e:
-                    print(f"Error generating tracker identification: {e}")
+                    print(f"Exception in generate_tracker_id:", e)
+                    self.db_connection.rollback()
+                    return {"status": "error", "message": "Error generating tracker identification"}, 500
             else:
                 print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
 
     def password_reset(self, tracker_id):
         try:
+            delete_log_query = "DELETE FROM lokation_log WHERE tracker_id = %s"
+            self.db_connection.execute_query(delete_log_query, (tracker_id,))
+
             query = "UPDATE tracker_enheder SET password = NULL WHERE tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
+            
             self.db_connection.commit()
 
             return {"status": "success", "message": "Password reset procedure exited successfully"}, 200
 
-        except Exception:
+        except Exception as e:
+            print(f"Exception in password_reset:", e)
+            self.db_connection.rollback()
             return {"status": "error", "message": "Error executing password reset procedure."}, 500
 
 data_handler = DataHandler()

@@ -169,14 +169,29 @@ class SetupTracker:
         self.entry_tracker_password = tk.Entry(self.setup_frame, show="*")
         self.entry_tracker_password.pack(pady=5)
 
-        btn_submit_setup = tk.Button(self.setup_frame, text="Submit Setup", command=self.submit_setup)
-        btn_submit_setup.pack(pady=10)
+        self.btn_submit_setup = tk.Button(self.setup_frame, text="Submit Setup", command=self.submit_setup, state=tk.DISABLED)
+        self.btn_submit_setup.pack(pady=10)
 
         btn_back_from_setup = tk.Button(self.setup_frame, text="Go Back", command=self.main_menu.show_main_menu)
         btn_back_from_setup.pack(pady=5)
 
+        self.entry_wifi_ssid.bind("<KeyRelease>", self.validate_inputs)
+        self.entry_wifi_password.bind("<KeyRelease>", self.validate_inputs)
+        self.entry_tracker_password.bind("<KeyRelease>", self.validate_inputs)
+
+    def validate_inputs(self, event=None):
+        # Check if all entry fields are filled
+        ssid = self.entry_wifi_ssid.get()
+        password = self.entry_wifi_password.get()
+        tracker_password = self.entry_tracker_password.get()
+
+        # If all fields are filled, enable the submit button; otherwise, disable it
+        if ssid and password and tracker_password:
+            self.btn_submit_setup.config(state=tk.NORMAL)
+        else:
+            self.btn_submit_setup.config(state=tk.DISABLED)
+
     def ble_thread_loop(self):
-        """Runs in a separate thread, manages the asyncio event loop."""
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
@@ -188,11 +203,10 @@ class SetupTracker:
             self.loop.close()
 
     def queue_ble_scan(self):
-        """Queue a BLE scan task from the main Tkinter thread."""
         asyncio.run_coroutine_threadsafe(self.bluetooth_scan(), self.loop)
 
     async def bluetooth_scan(self):
-        """Async Bluetooth scanning function."""
+
         self.device_list = await BleakScanner.discover()
         target_device = None
 
