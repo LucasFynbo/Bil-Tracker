@@ -9,7 +9,7 @@ from bleak import BleakScanner, BleakClient
 import queue
 import time
 
-URL = 'http://79.171.148.143/api'  # Adjust the URL if the Flask server is running on a different address or port
+URL = 'https://79.171.148.143/api'  # Adjust the URL if the Flask server is running on a different address or port
 
 # Create the main window
 window = tk.Tk()
@@ -26,7 +26,10 @@ class CoordinatesHandling:
     def get_coordinates(self, tracker_id, password):
         try:
             # Send HTTP POST request to the Flask backend with tracker ID and password for validation
-            response = requests.post(URL, json={'tracker_id': tracker_id, 'password': password})
+            response = requests.post(URL, json={'data': 'get coords', 
+                                                'tracker_id': tracker_id, 
+                                                'password': password 
+                                            })
 
             # Check if the request was successful
             if response.status_code == 200:
@@ -34,8 +37,9 @@ class CoordinatesHandling:
 
                 # Extract coordinates from the response if validation succeeds
                 if data['status'] == 'success' and 'coords' in data:
-                    coords = data['coords']
-                    x, y = map(float, coords.split(','))
+                    latitude = data['latitude']
+                    longitude = data['longitude']
+                    x, y = map(float, latitude, longitude)
                     return x, y
                 else:
                     messagebox.showerror("Error", f"Error: {data.get('message')}")

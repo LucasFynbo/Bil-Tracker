@@ -101,11 +101,17 @@ class DataHandler:
             if not if_exist:
                 return {"status": "error", "message": "Tracker identification not found"}, 404
 
-            query = "SELECT Koordinater FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
             self.db_connection.execute_query(query, (tracker_id,))
-            coords = self.db_connection.fetchone_column("Koordinater")
+            latitude = self.db_connection.fetchone_column("latitude")
 
-            return {"status": "success", "message": "Retrieved coordinates successfully", "coords": coords}, 200
+            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+            self.db_connection.execute_query(query, (tracker_id,))
+            longitude = self.db_connection.fetchone_column("longitude")
+
+            return {"status": "success", 
+                    "message": "Received coordinates successfully", 
+                    "longitude": longitude, "latitude": latitude}, 200
 
         except Exception as e:
             print(f"Exception in get_coords:", e)
@@ -155,6 +161,18 @@ class DataHandler:
             self.db_connection.rollback()
             return {"status": "error", "message": "Error executing password reset procedure."}, 500
 
+    def password_update(self, tracker_id, tracker_password):
+        try:
+            query = "UPDATE tracker_enheder SET password = %s WHERE tracker_id = %s"
+            self.db_connection.execute_query(query, (tracker_password, tracker_id,))
+            self.db_connection.commit()
+
+            return {"status": "success", "message": "Password update procedure exited successfully"}, 200
+
+        except Exception:
+            return {"status": "error", "message": "Error executing password update procedure."}, 500
+
+
 data_handler = DataHandler()
 @app.route('/', methods=['POST'])
 def handle():
@@ -189,13 +207,19 @@ def handle():
             result, status_code = data_handler.generate_tracker_id()
             return jsonify(result), status_code
 
-        case "wipe password request":
+        case "reset password request":
             tracker_id = data.get('tracker_id')
 
             if not tracker_id:
                 return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
 
             result, status_code = data_handler.password_reset(tracker_id)
+
+        case "update password request":
+            tracker_id = data.get('tracker_id')
+            tracker_password = data.get('tracker_password')
+
+            result, status_code = data_handler.password_update(tracker_id, tracker_password)
 
         case _:
             return {"status": "error", "message": "Error handeling received data"}, 500
