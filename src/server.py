@@ -108,7 +108,8 @@ class DataHandler:
                 self.db_connection.execute_query(query, (tracker_id,))
                 coordinates = self.db_connection.fetchone()
 
-                latitude, longitude = coordinates
+                latitude = float(coordinates['Latitude'])
+                longitude = float(coordinates['Longitude'])
 
                 return {"status": "success", 
                         "message": "Received coordinates successfully", 

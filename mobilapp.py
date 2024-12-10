@@ -29,17 +29,26 @@ class CoordinatesHandling:
             response = requests.post(URL, json={'data': 'get coords', 
                                                 'tracker_id': tracker_id, 
                                                 'password': password 
-                                            })
+                                            }, verify=False)
 
             # Check if the request was successful
             if response.status_code == 200:
                 data = response.json()
 
+                print(data)
+
+                response_status= data.get('status')
+
                 # Extract coordinates from the response if validation succeeds
-                if data['status'] == 'success' and 'coords' in data:
-                    latitude = data['latitude']
-                    longitude = data['longitude']
-                    x, y = map(float, (latitude, longitude))
+                if response_status == 'success':
+                    latitude = data.get('latitude')
+                    longitude = data.get('longitude')
+
+                    print(f"[!] Received Latitude: {latitude}, Longitude {longitude}")
+
+                    x = latitude
+                    y = longitude
+
                     return x, y
                 else:
                     messagebox.showerror("Error", f"Error: {data.get('message')}")
@@ -85,6 +94,8 @@ class LocateTracker:
         # Create a dedicated frame for the tracker view
         self.tracker_view_frame = tk.Frame(master)
         self.main_menu = main_menu
+
+        self.coords_handler = CoordinatesHandling()
 
         self.locate_tracker_widgets()  # Initialize widgets on this frame
 
