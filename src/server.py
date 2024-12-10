@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 import mysql.connector as mysql
 from mysql.connector import Error, OperationalError
 import secrets
+import bcrypt
 import time
 
 app = Flask(__name__)
@@ -76,9 +77,11 @@ class DataHandler:
             # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
             query = "SELECT Tracker_id FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            if_exist = self.db_connection.fetchone()
+            exist = self.db_connection.fetchone()
 
-            if not if_exist:
+            print("[!] Exist check returned with: ", exist)
+
+            if not exist:
                 return {"status": "error", "message": "Tracker identification not found"}, 404
 
             query = "INSERT INTO Lokation_log (latitude, longitude, Tracker_id, Tidspunkt) VALUES (%s, %s, %s, NOW())"
@@ -92,28 +95,24 @@ class DataHandler:
             self.db_connection.rollback()
             return {"status": "error", "message": "Error during coordinates insertion"}, 500
 
-    def get_coords(self, tracker_id=None):
+    def get_coords(self, tracker_id=None, tracker_password=None):
         """Only supply get coords if password correct"""
         try:
-            # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
-            query = "SELECT EXISTS(SELECT 1 FROM Tracker_enheder WHERE Tracker_id = %s);"
+            query = "SELECT Password FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            if_exist = self.db_connection.fetchone()[0]
+            result = self.db_connection.fetchone()
 
-            if not if_exist:
-                return {"status": "error", "message": "Tracker identification not found"}, 404
+            if result and bcrypt.checkpw(tracker_password.encode('utf-8'), result['Password'].encode('utf-8')):
 
-            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
-            self.db_connection.execute_query(query, (tracker_id,))
-            latitude = self.db_connection.fetchone_column("latitude")
+                query = "SELECT Latitude, Longitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
+                self.db_connection.execute_query(query, (tracker_id,))
+                coordinates = self.db_connection.fetchone()
 
-            query = "SELECT Latitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
-            self.db_connection.execute_query(query, (tracker_id,))
-            longitude = self.db_connection.fetchone_column("longitude")
+                latitude, longitude = coordinates
 
-            return {"status": "success", 
-                    "message": "Received coordinates successfully", 
-                    "longitude": longitude, "latitude": latitude}, 200
+                return {"status": "success", 
+                        "message": "Received coordinates successfully", 
+                        "longitude": longitude, "latitude": latitude}, 200
 
         except Exception as e:
             print(f"Exception in get_coords:", e)
@@ -172,8 +171,10 @@ class DataHandler:
         """Only update tracker password if it's NULL"""
 
         try:
+            hashed_password = bcrypt.hashpw(tracker_password.encode('utf-8'), bcrypt.gensalt())
+
             query = "UPDATE Tracker_enheder SET Password = %s WHERE Tracker_id = %s"
-            self.db_connection.execute_query(query, (tracker_password, tracker_id,))
+            self.db_connection.execute_query(query, (hashed_password.decode('utf-8'), tracker_id,))
             self.db_connection.commit()
 
             return {"status": "success", "message": "Password update procedure exited successfully"}, 200
@@ -207,11 +208,12 @@ def handle():
 
         case "get coords":
             tracker_id = data.get('tracker_id')
+            tracker_password = data.get('password')
 
-            if not tracker_id:
-                return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
+            if not tracker_id or not tracker_password:
+                return jsonify({"status": "error", "message": "No tracker identification or password specified in received data"}), 400
 
-            result, status_code = data_handler.get_coords(tracker_id=tracker_id)
+            result, status_code = data_handler.get_coords(tracker_id=tracker_id, tracker_password=tracker_password)
             return jsonify(result), status_code
 
         case "tracker id request":
@@ -230,6 +232,9 @@ def handle():
         case "update password request":
             tracker_id = data.get('tracker_id')
             tracker_password = data.get('tracker_password')
+
+            if not tracker_id or not tracker_password:
+                return jsonify({"status": "error", "message": "No tracker identification or password specified in received data"}), 400
 
             result, status_code = data_handler.password_update(tracker_id, tracker_password)
             return jsonify(result), status_code

@@ -39,7 +39,7 @@ class CoordinatesHandling:
                 if data['status'] == 'success' and 'coords' in data:
                     latitude = data['latitude']
                     longitude = data['longitude']
-                    x, y = map(float, latitude, longitude)
+                    x, y = map(float, (latitude, longitude))
                     return x, y
                 else:
                     messagebox.showerror("Error", f"Error: {data.get('message')}")
@@ -97,45 +97,49 @@ class LocateTracker:
     def locate_tracker_widgets(self):
         # Create widgets on the tracker view frame
         label_tracker_id = tk.Label(self.tracker_view_frame, text="Enter Tracker ID:")
-        label_tracker_id.pack(pady=5)
+        label_tracker_id.pack(pady=2)
         self.entry_tracker_id = tk.Entry(self.tracker_view_frame)
-        self.entry_tracker_id.pack(pady=5)
+        self.entry_tracker_id.pack(pady=2)
 
         label_password = tk.Label(self.tracker_view_frame, text="Enter Password:")
-        label_password.pack(pady=5)
+        label_password.pack(pady=2)
         self.entry_password = tk.Entry(self.tracker_view_frame, show="*")
-        self.entry_password.pack(pady=5)
+        self.entry_password.pack(pady=1)
 
-        btn_get_coordinates = tk.Button(self.tracker_view_frame, text="Get Coordinates", command=self.fetch_and_show_coordinates)
-        btn_get_coordinates.pack(pady=10)
-        btn_back_to_menu = tk.Button(self.tracker_view_frame, text="Go Back", command=self.main_menu.show_main_menu)
-        btn_back_to_menu.pack(pady=5)
+        btn_frame = tk.Frame(self.tracker_view_frame)
+        btn_frame.pack(pady=0.1, padx=2)
+
+
+        btn_get_coordinates = tk.Button(btn_frame, text="Get Coordinates", command=self.fetch_and_show_coordinates)
+        btn_get_coordinates.pack(pady=0.1, side=tk.LEFT, padx=5)
+        btn_back_to_menu = tk.Button(btn_frame, text="Go Back", command=self.main_menu.show_main_menu)
+        btn_back_to_menu.pack(pady=0.1, side=tk.RIGHT, padx=5)
 
 
         # Create a frame to hold the coordinate labels
         frame_coordinates = tk.Frame(self.tracker_view_frame)
-        frame_coordinates.pack(pady=10)
+        frame_coordinates.pack(pady=0.1)
 
         # Label for received coordinates message
         global label_received
         label_received = tk.Label(frame_coordinates, text="", font=("Arial", 14), fg='darkblue')
-        label_received.pack()
+        label_received.pack(pady=0.1)
 
         # Label to display X and Y coordinates
         global label_coordinates
         label_coordinates = tk.Label(frame_coordinates, text="", font=("Arial", 8), fg='darkblue')
-        label_coordinates.pack()
+        label_coordinates.pack(pady=0.1)
 
         # Create the map widget
         global map_widget
-        map_widget = TkinterMapView(self.tracker_view_frame, width=250, height=330)
-        map_widget.pack(pady=10)
+        map_widget = TkinterMapView(self.tracker_view_frame, width=250, height=275)
+        map_widget.pack(pady=0.1)
 
     def fetch_and_show_coordinates(self):
         tracker_id = self.entry_tracker_id.get()
-        password = self.entry_password.get()
-        if tracker_id and password:
-            x, y = self.coords_handler.get_coordinates(tracker_id, password)
+        tracker_password = self.entry_password.get()
+        if tracker_id and tracker_password:
+            x, y = self.coords_handler.get_coordinates(tracker_id, tracker_password)
             if x is not None and y is not None:
                 self.coords_handler.show_coordinates(x, y)
         else:

@@ -180,7 +180,12 @@ class HTTPServer:
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
 
-                os.remove('temp_tracker_password.txt')
+                print(f"Server response: {response.text}")
+
+                response_data = response.json()
+                
+                if response_data['status'] == 'success':
+                    os.remove('temp_tracker_password.txt')
                 
 
             except Exception as e:
@@ -197,6 +202,8 @@ class HTTPServer:
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
                         
+                print(f"Server response: {response.text}")    
+                    
             except Exception as e:
                 print(f"Unhandled exception: {e}")
         
@@ -317,7 +324,7 @@ class GPS:
                 if nmea_sentence.startswith('$GPRMC') and len(fields) >= 8:
                     speed_knots = float(fields[7]) if fields[7] else 0.0
                     speed_kmh = speed_knots * 1.852
-                    print(speed_kmh)
+                    print("Current speed [KM/H]:", speed_kmh)
                     return speed_kmh > 0  # Moving if speed > 0
             except Exception as e:
                 print("[!] Error while processing speed: ", str(e))
