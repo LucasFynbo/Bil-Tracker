@@ -178,7 +178,9 @@ class DataHandler:
 
             return {"status": "success", "message": "Password update procedure exited successfully"}, 200
 
-        except Exception:
+        except Exception as e:
+            print(f"Exception in password_reset:", e)
+            self.db_connection.rollback()
             return {"status": "error", "message": "Error executing password update procedure."}, 500
 
 
@@ -223,12 +225,14 @@ def handle():
                 return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
 
             result, status_code = data_handler.password_reset(tracker_id)
+            return jsonify(result), status_code
 
         case "update password request":
             tracker_id = data.get('tracker_id')
             tracker_password = data.get('tracker_password')
 
             result, status_code = data_handler.password_update(tracker_id, tracker_password)
+            return jsonify(result), status_code
 
         case _:
             return {"status": "error", "message": "Error handeling received data"}, 500

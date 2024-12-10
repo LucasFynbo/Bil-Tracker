@@ -117,7 +117,6 @@ class HTTPServer:
         global TRACKER_ID
 
         gc.collect()
-        response = None
 
         if 'tracker id request' == type:
             try:
@@ -484,4 +483,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
