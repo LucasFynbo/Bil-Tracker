@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 import mysql.connector as mysql
 from mysql.connector import Error, OperationalError
 import secrets
+import time
 
 app = Flask(__name__)
 
@@ -92,6 +93,7 @@ class DataHandler:
             return {"status": "error", "message": "Error during coordinates insertion"}, 500
 
     def get_coords(self, tracker_id=None):
+        """Only supply get coords if password correct"""
         try:
             # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
             query = "SELECT EXISTS(SELECT 1 FROM Tracker_enheder WHERE Tracker_id = %s);"
@@ -118,6 +120,7 @@ class DataHandler:
             return {"status": "error", "message": "Error retrieving coordinate data"}, 500
 
     def generate_tracker_id(self):
+        """Run through hashing and salt algorithm"""
         while True:
             rtal = secrets.choice(range(10000, 99999))
             tracker_id = ('Tracker#' + str(rtal))
@@ -133,6 +136,9 @@ class DataHandler:
                     self.db_connection.commit()
 
                     print('[+] Device ID & Password successfully generated: %s' % (tracker_id))
+
+                    time.sleep(2)
+
                     return {"status": "success", 
                             "message": "Successfully generated tracker identification", 
                             "tracker_id": tracker_id}, 200
@@ -145,11 +151,12 @@ class DataHandler:
                 print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
 
     def password_reset(self, tracker_id):
+        """Also send temp_password_file password and compare it before reseting"""
         try:
-            delete_log_query = "DELETE FROM lokation_log WHERE tracker_id = %s"
+            delete_log_query = "DELETE FROM Lokation_log WHERE Tracker_id = %s"
             self.db_connection.execute_query(delete_log_query, (tracker_id,))
 
-            query = "UPDATE tracker_enheder SET password = NULL WHERE tracker_id = %s"
+            query = "UPDATE Tracker_enheder SET Password = NULL WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
             
             self.db_connection.commit()
@@ -162,8 +169,10 @@ class DataHandler:
             return {"status": "error", "message": "Error executing password reset procedure."}, 500
 
     def password_update(self, tracker_id, tracker_password):
+        """Only update tracker password if it's NULL"""
+
         try:
-            query = "UPDATE tracker_enheder SET password = %s WHERE tracker_id = %s"
+            query = "UPDATE Tracker_enheder SET Password = %s WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_password, tracker_id,))
             self.db_connection.commit()
 

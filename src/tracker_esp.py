@@ -11,9 +11,9 @@ import uasyncio as asyncio
 import ujson as json
 import os
 from micropython import const
+import gc
 
-
-SERVER_URL = "http://79.171.148.143/api"
+SERVER_URL = "https://79.171.148.143/api"
 TRACKER_ID = None
 
 _TRACKER_SERVICE_UUID = bluetooth.UUID("4f450d8c-b4fa-4ee6-b131-3161f2e82aac")
@@ -100,6 +100,11 @@ class BLEPeripheral:
                     
                 with open('temp_tracker_password.txt', 'w') as file:
                     json.dump(tracker_password, file)
+                    
+                   
+                asyncio.sleep(5)
+                   
+                reset()
                  
                 # Uncomment below statement when vsphere up and running
                 # HTTPServer.send_data(type="tracker password update", tracker_password=TRACKER_PASS_VALUE_BYTE.decode('utf-8'))
@@ -111,13 +116,16 @@ class HTTPServer:
     def send_data(type=None, data=None):
         global TRACKER_ID
 
+        gc.collect()
+        response = None
+
         if 'tracker id request' == type:
             try:
-                data_packet = {
-                    'data': 'tracker id request'				
-                }
+                
+                data_packet = {'data': 'tracker id request'}
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
+                
                 response = urequests.post(SERVER_URL, json=data_packet)
 
                 print(f"Server response: {response.text}")
@@ -128,16 +136,17 @@ class HTTPServer:
                     TRACKER_ID = response_data['tracker_id']
 
                     tracker_id = {
-                        "Tracker_id": TRACKER_ID,
-                    }		
+                        'Tracker_id': TRACKER_ID
+                        }		
 
                     with open('tracker_id.txt', 'w') as file:
                         json.dump(tracker_id, file)
 
                     print("[+] Tracker id request successfully handled")
+                    
 
                 else:
-                    print("[!] Error handeling tracker id request response.")	
+                    print("[!] Error handeling tracker id request response.")
 
             except Exception as e:
                 print(f"Unhandled exception: {e}")
@@ -150,8 +159,8 @@ class HTTPServer:
                     'data': 'received coords',	
                     'coords_lat': f"{data[0]}",
                     'coords_long': f"{data[1]}",
-                    'tracker_id': TRACKER_ID				
-                }
+                    'tracker_id': TRACKER_ID
+                    }
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
@@ -164,15 +173,16 @@ class HTTPServer:
             
             try:                
                 data_packet = {
-                    'data': 'tracker password update',	
+                    'data': 'update password request',	
                     'tracker_id': TRACKER_ID,
-                    'tracker_password': data,
-                }
+                    'tracker_password': data
+                    }
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
 
                 os.remove('temp_tracker_password.txt')
+                
 
             except Exception as e:
                 print(f"Unhandled exception: {e}")
@@ -181,15 +191,17 @@ class HTTPServer:
             
             try:
                 data_packet = {
-                            'data': 'reset password request',    
-                            'tracker_id': TRACKER_ID                
-                        }
+                    'data': 'reset password request',
+                    'tracker_id': TRACKER_ID
+                    }
                         
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
                         
             except Exception as e:
                 print(f"Unhandled exception: {e}")
+        
+        gc.collect()
 
 
 class ResetButton:
@@ -376,7 +388,7 @@ def tracker_id_control():
             HTTPServer.send_data(type='tracker id request')
         # Hvis Tracker ID'et allerede er skabt for enheden
         else:
-            tracker_id = json.loads(tracker_id)
+            tracker_id = json.loads(credentials_file)
             TRACKER_ID = tracker_id.get("Tracker_id")
 
             print(f"[+] Tracker ID: {TRACKER_ID}")
@@ -395,11 +407,12 @@ def send_password():
         with open('temp_tracker_password.txt', 'r') as file:
             temp_tracker_password = file.read()
 
-            tracker_password = json.loads(temp_tracker_password)
-            HTTPServer.send_data(type='tracker password update', tracker_password=tracker_password)
+            tracker_password_file = json.loads(temp_tracker_password)
+            tracker_password = tracker_password_file.get("Tracker_pass")
+            HTTPServer.send_data(type='tracker password update', data=tracker_password)
         
     except OSError:
-        print()
+        print("[!] Password Temp file doesn't exist. Skipping update procedure")
 
 
 async def main():
@@ -416,16 +429,14 @@ async def main():
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
-            reset()
-            
         else:
             credentials = json.loads(credentials_file)
-            ssid = credentials.get("SSID")
-            password = credentials.get("PASS")
+            ssid_value = credentials.get("SSID")
+            password_value = credentials.get("PASS")
 
-            if ssid and password:
-                print(f"SSID: {ssid}, PASS: {password}")
-                ip_value = captive_portal.ConnectHandler.activate(ssid, password)
+            if ssid_value and password_value:
+                print(f"SSID: {ssid_value}, PASS: {password_value}")
+                ip_value = captive_portal.ConnectHandler.activate(ssid_value, password_value)
             else:
                 print("[!] Network credentials are invalid or incomplete.")
             
@@ -440,8 +451,6 @@ async def main():
             )
             
             
-            reset()
-            
         # Andre errors
         else:
             print("[!] Error: '%s' occured." % e)
@@ -451,7 +460,6 @@ async def main():
                 asyncio.create_task(ble.monitor_char_value()),
             )
             
-            reset()
     
     print(f"Received IP: {ip_value}")
     
@@ -468,7 +476,7 @@ async def main():
             gps_data = gps_device.read_gps()
 
             if gps_data:
-                HTTPServer.send_data(type="send gps coordinates", gps=gps_data)
+                HTTPServer.send_data(type="send gps coordinates", data=gps_data)
             time.sleep(15)
         else:
             print("Car is stationary, not reading GPS.")
@@ -476,3 +484,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
