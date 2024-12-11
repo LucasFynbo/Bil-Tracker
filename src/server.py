@@ -65,7 +65,7 @@ class DatabaseConnection:
         self.db.rollback()
 
     def get_row_count(self):
-        return self.mycursor.rowcount()
+        return self.mycursor.rowcount
 
 
 class DataHandler:
@@ -197,7 +197,14 @@ class DataHandler:
             return {"status": "error", "message": "Error executing password reset procedure."}, 500
 
     def password_update(self, tracker_id, tracker_password):
-        """Only update tracker password if it's NULL"""
+        """
+            Successful tracker-id verification, results in a "result" variable value of:
+                result = {'Tracker_id': 'Tracker#53355'} 
+
+            If verification fails, "result" value is of NoneType.
+
+            Password update only suceeds on Tracker'ids with currently non-set password values (NULL).
+        """
 
         # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
         query = "SELECT Tracker_id FROM Tracker_enheder WHERE Tracker_id = %s"
