@@ -5,7 +5,6 @@ import urequests
 
 import aioble
 import bluetooth
-import struct
 import uasyncio as asyncio
 
 import ujson as json
@@ -105,9 +104,6 @@ class BLEPeripheral:
                 asyncio.sleep(5)
                    
                 reset()
-                 
-                # Uncomment below statement when vsphere up and running
-                # HTTPServer.send_data(type="tracker password update", tracker_password=TRACKER_PASS_VALUE_BYTE.decode('utf-8'))
             
             await asyncio.sleep(1)
             

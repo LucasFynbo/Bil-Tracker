@@ -65,7 +65,7 @@ class DatabaseConnection:
         self.db.rollback()
 
     def get_row_count(self):
-        return self.mycursor.rowcount
+        return self.mycursor.rowcount()
 
 
 class DataHandler:
@@ -73,15 +73,19 @@ class DataHandler:
         self.db_connection = DatabaseConnection()
 
     def received_coords(self, lat=None, long=None, tracker_id=None):
+        """
+            Successful tracker-id verification, results in a "result" variable value of:
+                result = {'Tracker_id': 'Tracker#53355'} 
+
+            If verification fails, "result" value is of NoneType.
+        """
         try:
             # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
             query = "SELECT Tracker_id FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            exist = self.db_connection.fetchone()
+            result:str = self.db_connection.fetchone()
 
-            print("[!] Exist check returned with: ", exist)
-
-            if not exist:
+            if result is None:
                 return {"status": "error", "message": "Tracker identification not found"}, 404
 
             query = "INSERT INTO Lokation_log (latitude, longitude, Tracker_id, Tidspunkt) VALUES (%s, %s, %s, NOW())"
@@ -96,13 +100,23 @@ class DataHandler:
             return {"status": "error", "message": "Error during coordinates insertion"}, 500
 
     def get_coords(self, tracker_id=None, tracker_password=None):
-        """Only supply get coords if password correct"""
+        """
+            Runs bcrypt password check before sending coordinates to client device.
+
+            This is to implement a layer of security if spoofing of tracker device occurs.
+
+            A successful "result = self.db_connection.fetchone()" value:
+                result = {'Password': '$2b$12$s.NgSTS72KVed0mEXZ5r9ObbCtph3PtpfeefsjibgO10tFnwCpvSW'}
+
+            If fetchone is not successful (wrong tracker-id in this case), result is of NoneType.
+        """
+
         try:
             query = "SELECT Password FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            result = self.db_connection.fetchone()
+            result:str = self.db_connection.fetchone()
 
-            if result and bcrypt.checkpw(tracker_password.encode('utf-8'), result['Password'].encode('utf-8')):
+            if bcrypt.checkpw(tracker_password.encode('utf-8'), result['Password'].encode('utf-8')):
 
                 query = "SELECT Latitude, Longitude FROM Lokation_log WHERE Tracker_id = %s ORDER BY Tidspunkt DESC LIMIT 1;"
                 self.db_connection.execute_query(query, (tracker_id,))
@@ -120,14 +134,28 @@ class DataHandler:
             return {"status": "error", "message": "Error retrieving coordinate data"}, 500
 
     def generate_tracker_id(self):
-        """Run through hashing and salt algorithm"""
+        """
+            Generates tracker id when requested. Loops until fetchone request of the generated ID results in 'None'.
+
+            If generated ID exists, result of fetch will return the row containing the already existing ID and password - this data is not used:
+
+            "result = self.db_connection.fetchone()" result if ID exists already:
+                
+                result = {'Tracker_id': 'Tracker#26349', 'Password': None}
+
+            "result = self.db_connection.fetchone()" result if ID doesn't exists already:
+
+                result = None
+
+        """
+
         while True:
             rtal = secrets.choice(range(10000, 99999))
             tracker_id = ('Tracker#' + str(rtal))
 
             query = "SELECT * FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            result = self.db_connection.fetchone()
+            result:str = self.db_connection.fetchone()
 
             if result is None:
                 try:
@@ -135,7 +163,7 @@ class DataHandler:
                     self.db_connection.execute_query(query, (tracker_id,))
                     self.db_connection.commit()
 
-                    print('[+] Device ID & Password successfully generated: %s' % (tracker_id))
+                    print('[+] Tracker identification number successfully generated: %s' % (tracker_id))
 
                     time.sleep(2)
 
@@ -171,14 +199,26 @@ class DataHandler:
     def password_update(self, tracker_id, tracker_password):
         """Only update tracker password if it's NULL"""
 
+        # Tjek 'Tracker_enheder' tabellen om 'Tracker_id' eksisterer.
+        query = "SELECT Tracker_id FROM Tracker_enheder WHERE Tracker_id = %s"
+        self.db_connection.execute_query(query, (tracker_id,))
+        result:str = self.db_connection.fetchone()
+
+        if result is None:
+            return {"status": "error", "message": "Tracker identification not found"}, 404
+
         try:
             hashed_password = bcrypt.hashpw(tracker_password.encode('utf-8'), bcrypt.gensalt())
 
-            query = "UPDATE Tracker_enheder SET Password = %s WHERE Tracker_id = %s"
+            query = "UPDATE Tracker_enheder SET Password = %s WHERE Tracker_id = %s AND Password IS NULL"
             self.db_connection.execute_query(query, (hashed_password.decode('utf-8'), tracker_id,))
+            rows_updated = self.db_connection.get_row_count()
             self.db_connection.commit()
 
-            return {"status": "success", "message": "Password update procedure exited successfully"}, 200
+            if rows_updated > 0:
+                return {"status": "success", "message": "Password updated successfully"}, 200
+            else:
+                return {"status": "error", "message": "Password update failed. Password may already be set or Tracker_id is invalid."}, 400
 
         except Exception as e:
             print(f"Exception in password_reset:", e)
@@ -241,7 +281,7 @@ def handle():
             return jsonify(result), status_code
 
         case _:
-            return {"status": "error", "message": "Error handeling received data"}, 500
+            return jsonify({"status": "error", "message": "Error handeling received data"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=13371)

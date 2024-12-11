@@ -2,3 +2,4 @@ tkintermapview
 bleak
 flask
 MySQL-connector-Python
+bcrypt
