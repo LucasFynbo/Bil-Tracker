@@ -7,7 +7,6 @@ import asyncio
 import threading
 from bleak import BleakScanner, BleakClient
 import queue
-import time
 
 URL = 'https://79.171.148.143/api'  # Adjust the URL if the Flask server is running on a different address or port
 
@@ -264,27 +263,25 @@ class SetupTracker:
         asyncio.run_coroutine_threadsafe(self.write_to_gatt_services(), self.loop)
 
     async def write_to_gatt_services(self):
-        """Writes Wi-Fi and tracker credentials to the device's GATT services."""
+        """Writes Wi-Fi and tracker credentials to the car tracker's characteristics"""
         ssid = self.entry_wifi_ssid.get()
         password = self.entry_wifi_password.get()
         tracker_password = self.entry_tracker_password.get()
 
-        # Debug: Log the values being written
+        # Information til debugging
         print(f"SSID: {ssid}, Password: {password}, Tracker Password: {tracker_password}")
 
         try:
-            # Ensure the client is connected before writing
             if self.client.is_connected:
                 print("Client is connected, writing to GATT services...")
 
-                # Write each characteristic
+                # Skriv til biltrackerens GATT characteristics
                 await self.client.write_gatt_char(CHARACTERISTIC_UUID_WIFI_SSID, ssid.encode())
                 await self.client.write_gatt_char(CHARACTERISTIC_UUID_WIFI_PASSWORD, password.encode())
                 await self.client.write_gatt_char(CHARACTERISTIC_UUID_TRACKER_PASSWORD, tracker_password.encode())
 
                 print("GATT services written successfully.")
 
-                # Show success message and return to the main menu
                 messagebox.showinfo("Setup Successful", "Configuration completed successfully.")
                 self.close_setup_screen()
             else:
