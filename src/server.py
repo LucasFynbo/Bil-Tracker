@@ -17,7 +17,7 @@ class DatabaseConnection:
     def connect(self):
         try:
             self.db = mysql.connect(
-                host="localhost",
+                unix_socket="/var/run/mysqld/mysqld.sock",
                 user="tracker",
                 passwd=os.getenv("MY_DB_PASSWORD"),
                 database="biltracker",
