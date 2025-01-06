@@ -179,7 +179,6 @@ class DataHandler:
                 print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
 
     def password_reset(self, tracker_id):
-        """Also send temp_password_file password and compare it before reseting"""
         try:
             delete_log_query = "DELETE FROM Lokation_log WHERE Tracker_id = %s"
             self.db_connection.execute_query(delete_log_query, (tracker_id,))

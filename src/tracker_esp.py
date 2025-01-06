@@ -28,7 +28,7 @@ class BLEPeripheral:
         # Define BLE service and characteristics with explicit permissions
         self.device_service = aioble.Service(_TRACKER_SERVICE_UUID)
 
-        # Define characteristics with write permissions
+        # Definer 
         self.ssid_characteristic = aioble.Characteristic(self.device_service,
                                                          _CHARACTERISTIC_UUID_WIFI_SSID,
                                                          write=True, read=True, notify=True, capture=True)
