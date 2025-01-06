@@ -1,4 +1,4 @@
-from machine import I2C, Pin, UART, reset
+from machine import Pin, UART, reset
 import time
 import captive_portal
 import urequests
@@ -94,16 +94,19 @@ class BLEPeripheral:
                     "Tracker_pass": TRACKER_PASS_VALUE_BYTE.decode('utf-8'),
                 }
                 
-                with open('network_credentials.txt', 'w') as file:
+                with open('network_credentials.json', 'w') as file:
                     json.dump(credentials, file)
                     
-                with open('temp_tracker_password.txt', 'w') as file:
+                with open('temp_tracker_password.json', 'w') as file:
                     json.dump(tracker_password, file)
                     
                    
                 asyncio.sleep(5)
                    
                 reset()
+                 
+                # Uncomment below statement when vsphere up and running
+                # HTTPServer.send_data(type="tracker password update", tracker_password=TRACKER_PASS_VALUE_BYTE.decode('utf-8'))
             
             await asyncio.sleep(1)
             
@@ -134,7 +137,7 @@ class HTTPServer:
                         'Tracker_id': TRACKER_ID
                         }		
 
-                    with open('tracker_id.txt', 'w') as file:
+                    with open('tracker_id.json', 'w') as file:
                         json.dump(tracker_id, file)
 
                     print("[+] Tracker id request successfully handled")
@@ -181,7 +184,7 @@ class HTTPServer:
                 response_data = response.json()
                 
                 if response_data['status'] == 'success':
-                    os.remove('temp_tracker_password.txt')
+                    os.remove('temp_tracker_password.json')
                 
 
             except Exception as e:
@@ -212,7 +215,7 @@ class ResetButton:
         self.led_pin = 12           # Pin for LED
         self.reset_button = Pin(self.reset_button_pin, Pin.IN, Pin.PULL_UP)
         self.led = Pin(self.led_pin, Pin.OUT)
-        self.file_path = 'network_credentials.txt'
+        self.file_path = 'network_credentials.json'
         
         self.press_start = None  # To track button press start time
         self.reset_button.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=self.handle_button_press)
@@ -256,9 +259,6 @@ class ResetButton:
             self.blink_led(5, 250)
         elif level == 2:
             print("[!] Performing level 2 reset")
-            
-            print("Deleting wifi credentials")
-            self.delete_file()
             
             print("Running password reset procedure")
             HTTPServer.send_data(type="password reset procedure")
@@ -321,7 +321,9 @@ class GPS:
                     speed_knots = float(fields[7]) if fields[7] else 0.0
                     speed_kmh = speed_knots * 1.852
                     print("Current speed [KM/H]:", speed_kmh)
-                    return speed_kmh > 0  # Moving if speed > 0
+                    
+                    return 1 # Debug mode, delete this
+                    # return speed_kmh > 0 # Moving if speed larger than 0
             except Exception as e:
                 print("[!] Error while processing speed: ", str(e))
         return False
@@ -381,7 +383,7 @@ def tracker_id_control():
     
     # Kontroller om der allerede er genereret et Tracker ID for enheden
     try:
-        with open('tracker_id.txt', 'r') as file:
+        with open('tracker_id.json', 'r') as file:
             credentials_file = file.read()
         
         # Hvis filen indeholdende tracker ID'et står tomt
@@ -406,7 +408,7 @@ def tracker_id_control():
 
 def send_password():
     try:
-        with open('temp_tracker_password.txt', 'r') as file:
+        with open('temp_tracker_password.json', 'r') as file:
             temp_tracker_password = file.read()
 
             tracker_password_file = json.loads(temp_tracker_password)
@@ -419,7 +421,7 @@ def send_password():
 
 async def main():
     try:
-        with open('network_credentials.txt', 'r') as file:
+        with open('network_credentials.json', 'r') as file:
             credentials_file = file.read()
             
         # Hvis filen indeholdende network credentials står tomt
@@ -474,7 +476,7 @@ async def main():
     gps_device = GPS()
 
     while True:
-        if gps_device.check_speed():
+        if gps_device.check_speed(): # Returns non 0 value if device is moving
             gps_data = gps_device.read_gps()
 
             if gps_data:
