@@ -260,20 +260,20 @@ def handle():
 
     print(data)
 
-    tracker_id = data.get('tracker_id')
-    if not tracker_id:
-        return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
-
-    result_of_intergrity = data_handler.intergrity_check(tracker_id, data)
-
-    if result_of_intergrity:
-        subject = data.get('data')
-    elif data.get('data') == "tracker id request":
+    if data.get('data') == "tracker id request":
         subject = data.get('data')
     elif data.get('data') == "get coords":
         subject = data.get('data')
     else:
-        subject = None
+        tracker_id = data.get('tracker_id')
+        if not tracker_id:
+            return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
+
+        result_of_intergrity = data_handler.intergrity_check(tracker_id, data)
+        if result_of_intergrity:
+            subject = data.get('data')
+        else:
+            subject = None
 
     match(subject):
         case "received coords":
