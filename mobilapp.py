@@ -225,6 +225,8 @@ class SetupTracker:
 
     async def bluetooth_scan(self):
 
+        print("Starting BLE scan")
+
         self.device_list = await BleakScanner.discover()
         target_device = None
 

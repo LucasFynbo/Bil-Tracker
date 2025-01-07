@@ -268,6 +268,8 @@ def handle():
 
     if result_of_intergrity:
         subject = data.get('data')
+    elif data.get('data') == "get coords":
+        subject = data.get('data')
     else:
         subject = None
 
