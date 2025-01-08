@@ -7,7 +7,7 @@ import aioble
 import bluetooth
 import uasyncio as asyncio
 import hmac
-import hashlib
+import hashlib 
 
 import ujson as json
 import os
@@ -166,7 +166,7 @@ class HTTPServer:
                     }
 
                 payload_str = json.dumps(data_packet, separators=(',', ':'))
-                hmac_signature = hmac.new(TOKEN_KEY, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
                 data_packet["hmac"] = hmac_signature
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
@@ -186,7 +186,7 @@ class HTTPServer:
                     }
 
                 payload_str = json.dumps(data_packet, separators=(',', ':'))
-                hmac_signature = hmac.new(TOKEN_KEY, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
                 data_packet["hmac"] = hmac_signature
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
@@ -212,7 +212,7 @@ class HTTPServer:
                     }
                         
                 payload_str = json.dumps(data_packet, separators=(',', ':'))
-                hmac_signature = hmac.new(TOKEN_KEY, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
                 data_packet["hmac"] = hmac_signature
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
@@ -411,7 +411,7 @@ def tracker_id_control():
         else:
             credentials = json.loads(credentials_file)
             TRACKER_ID = credentials.get("Tracker_id")
-            TOKEN_KEY = credentials.get("token_key")
+            TOKEN_KEY = credentials.get("Token_key")
 
             print(f"[+] Tracker ID: {TRACKER_ID}, Token Key: {TOKEN_KEY}")
             
@@ -425,6 +425,7 @@ def tracker_id_control():
             print("[!] Error: '%s' occured." % e)
 
 def send_password():
+    print("Sending password")
     try:
         with open('temp_tracker_password.json', 'r') as file:
             temp_tracker_password = file.read()
@@ -438,6 +439,8 @@ def send_password():
 
 
 async def main():
+    reset_button = ResetButton()
+    
     try:
         with open('network_credentials.json', 'r') as file:
             credentials_file = file.read()
@@ -485,8 +488,6 @@ async def main():
     
     print(f"Received IP: {ip_value}")
     
-    reset_button = ResetButton()
-    
     tracker_id_control()
     
     send_password()
@@ -506,3 +507,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

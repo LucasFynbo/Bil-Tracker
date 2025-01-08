@@ -77,9 +77,9 @@ class DataHandler:
         
         query = "SELECT Token_key FROM Tracker_enheder WHERE Tracker_id = %s"
         self.db_connection.execute_query(query, (tracker_id,))
-        token_key:str = self.db_connection.fetchone()
+        token_key = self.db_connection.fetchone()
 
-        token_key = str(token_key['Token_key'])
+        token_key = bytes(token_key['Token_key'], 'utf-8')
 
         received_hmac = received_payload.pop("hmac")
         payload_str = json.dumps(received_payload, separators=(',', ':'))
@@ -172,7 +172,7 @@ class DataHandler:
             tracker_id = ('Tracker#' + str(rtal))
 
             query = "SELECT * FROM Tracker_enheder WHERE Tracker_id = %s"
-            self.db_connection.execute_query(query, (tracker_id))
+            self.db_connection.execute_query(query, (tracker_id,))
             result = self.db_connection.fetchone()
 
             if result is None:
