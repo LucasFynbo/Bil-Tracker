@@ -5,6 +5,7 @@ from mysql.connector import Error, OperationalError
 import secrets
 import bcrypt
 import time
+import json, hmac, hashlib
 
 app = Flask(__name__)
 
@@ -71,6 +72,23 @@ class DatabaseConnection:
 class DataHandler:
     def __init__(self):
         self.db_connection = DatabaseConnection()
+
+    def intergrity_check(self, tracker_id=None, received_payload=None):
+        
+        query = "SELECT Token_key FROM Tracker_enheder WHERE Tracker_id = %s"
+        self.db_connection.execute_query(query, (tracker_id,))
+        token_key = self.db_connection.fetchone()
+
+        token_key = bytes(token_key['Token_key'], 'utf-8')
+
+        received_hmac = received_payload.pop("hmac")
+        payload_str = json.dumps(received_payload, separators=(',', ':'))
+        computed_hmac = hmac.new(token_key, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+
+        if hmac.compare_digest(computed_hmac, received_hmac):
+            return True # Sammenligning success
+        else:
+            return False # Sammenligning fejlede
 
     def received_coords(self, lat=None, long=None, tracker_id=None):
         """
@@ -155,21 +173,24 @@ class DataHandler:
 
             query = "SELECT * FROM Tracker_enheder WHERE Tracker_id = %s"
             self.db_connection.execute_query(query, (tracker_id,))
-            result:str = self.db_connection.fetchone()
+            result = self.db_connection.fetchone()
 
             if result is None:
                 try:
-                    query = "INSERT INTO Tracker_enheder (Tracker_id) VALUES (%s)"
-                    self.db_connection.execute_query(query, (tracker_id,))
+                    token_key = secrets.token_hex(32)
+
+                    query = "INSERT INTO Tracker_enheder (Tracker_id, Token_key) VALUES (%s, %s)"
+                    self.db_connection.execute_query(query, (tracker_id, token_key))
                     self.db_connection.commit()
 
-                    print('[+] Tracker identification number successfully generated: %s' % (tracker_id))
+                    print('[+] Tracker identification number and token key successfully generated: %s, %s' % (tracker_id, token_key))
 
                     time.sleep(2)
 
                     return {"status": "success", 
                             "message": "Successfully generated tracker identification", 
-                            "tracker_id": tracker_id}, 200
+                            "tracker_id": tracker_id,
+                            "token_key": token_key}, 200
 
                 except Exception as e:
                     print(f"Exception in generate_tracker_id:", e)
@@ -179,7 +200,6 @@ class DataHandler:
                 print('[!] Device ID: %s already exist in the database, retrying...' % tracker_id)
 
     def password_reset(self, tracker_id):
-        """Also send temp_password_file password and compare it before reseting"""
         try:
             delete_log_query = "DELETE FROM Lokation_log WHERE Tracker_id = %s"
             self.db_connection.execute_query(delete_log_query, (tracker_id,))
@@ -240,13 +260,25 @@ def handle():
 
     print(data)
 
-    subject = data.get('data')
+    if data.get('data') == "tracker id request":
+        subject = data.get('data')
+    elif data.get('data') == "get coords":
+        subject = data.get('data')
+    else:
+        tracker_id = data.get('tracker_id')
+        if not tracker_id:
+            return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
+
+        result_of_intergrity = data_handler.intergrity_check(tracker_id, data)
+        if result_of_intergrity:
+            subject = data.get('data')
+        else:
+            subject = None
 
     match(subject):
         case "received coords":
             coords_lat = data.get('coords_lat')
             coords_long = data.get('coords_long')
-            tracker_id = data.get('tracker_id')
 
             if not coords_lat or not coords_long or not tracker_id:
                 return jsonify({"status": "error", "message": "No coordinates or tracker identification specified in received data"}), 400
@@ -255,7 +287,6 @@ def handle():
             return jsonify(result), status_code
 
         case "get coords":
-            tracker_id = data.get('tracker_id')
             tracker_password = data.get('password')
 
             if not tracker_id or not tracker_password:
@@ -269,16 +300,10 @@ def handle():
             return jsonify(result), status_code
 
         case "reset password request":
-            tracker_id = data.get('tracker_id')
-
-            if not tracker_id:
-                return jsonify({"status": "error", "message": "No tracker identification specified in received data"}), 400
-
             result, status_code = data_handler.password_reset(tracker_id)
             return jsonify(result), status_code
 
         case "update password request":
-            tracker_id = data.get('tracker_id')
             tracker_password = data.get('tracker_password')
 
             if not tracker_id or not tracker_password:
