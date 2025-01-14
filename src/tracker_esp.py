@@ -6,6 +6,8 @@ import urequests
 import aioble
 import bluetooth
 import uasyncio as asyncio
+import hmac
+import hashlib 
 
 import ujson as json
 import os
@@ -14,6 +16,7 @@ import gc
 
 SERVER_URL = "https://79.171.148.143/api"
 TRACKER_ID = None
+TOKEN_KEY = None
 
 _TRACKER_SERVICE_UUID = bluetooth.UUID("4f450d8c-b4fa-4ee6-b131-3161f2e82aac")
 _CHARACTERISTIC_UUID_WIFI_SSID = bluetooth.UUID("841677b2-99fe-4175-9fc9-033ac6c85a54")
@@ -28,7 +31,7 @@ class BLEPeripheral:
         # Define BLE service and characteristics with explicit permissions
         self.device_service = aioble.Service(_TRACKER_SERVICE_UUID)
 
-        # Define characteristics with write permissions
+        # Definer 
         self.ssid_characteristic = aioble.Characteristic(self.device_service,
                                                          _CHARACTERISTIC_UUID_WIFI_SSID,
                                                          write=True, read=True, notify=True, capture=True)
@@ -113,7 +116,7 @@ class BLEPeripheral:
         
 class HTTPServer:
     def send_data(type=None, data=None):
-        global TRACKER_ID
+        global TRACKER_ID, TOKEN_KEY
 
         gc.collect()
 
@@ -132,9 +135,11 @@ class HTTPServer:
 
                 if response_data['status'] == 'success':
                     TRACKER_ID = response_data['tracker_id']
+                    TOKEN_KEY = response_data['token_key']
 
                     tracker_id = {
-                        'Tracker_id': TRACKER_ID
+                        'Tracker_id': TRACKER_ID,
+                        'Token_key': TOKEN_KEY
                         }		
 
                     with open('tracker_id.json', 'w') as file:
@@ -160,6 +165,10 @@ class HTTPServer:
                     'tracker_id': TRACKER_ID
                     }
 
+                payload_str = json.dumps(data_packet, separators=(',', ':'))
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                data_packet["hmac"] = hmac_signature
+
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
 
@@ -175,6 +184,10 @@ class HTTPServer:
                     'tracker_id': TRACKER_ID,
                     'tracker_password': data
                     }
+
+                payload_str = json.dumps(data_packet, separators=(',', ':'))
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                data_packet["hmac"] = hmac_signature
 
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
@@ -198,6 +211,10 @@ class HTTPServer:
                     'tracker_id': TRACKER_ID
                     }
                         
+                payload_str = json.dumps(data_packet, separators=(',', ':'))
+                hmac_signature = hmac.new(b'{}'.format(TOKEN_KEY), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                data_packet["hmac"] = hmac_signature
+
                 print(f"[+] Sending data: {json.dumps(data_packet)}")
                 response = urequests.post(SERVER_URL, json=data_packet)
                         
@@ -379,7 +396,7 @@ class GPS:
 
 
 def tracker_id_control():
-    global TRACKER_ID
+    global TRACKER_ID, TOKEN_KEY
     
     # Kontroller om der allerede er genereret et Tracker ID for enheden
     try:
@@ -392,10 +409,11 @@ def tracker_id_control():
             HTTPServer.send_data(type='tracker id request')
         # Hvis Tracker ID'et allerede er skabt for enheden
         else:
-            tracker_id = json.loads(credentials_file)
-            TRACKER_ID = tracker_id.get("Tracker_id")
+            credentials = json.loads(credentials_file)
+            TRACKER_ID = credentials.get("Tracker_id")
+            TOKEN_KEY = credentials.get("Token_key")
 
-            print(f"[+] Tracker ID: {TRACKER_ID}")
+            print(f"[+] Tracker ID: {TRACKER_ID}, Token Key: {TOKEN_KEY}")
             
     except OSError as e:
         # Hvis filen ikke eksisterer
@@ -407,6 +425,7 @@ def tracker_id_control():
             print("[!] Error: '%s' occured." % e)
 
 def send_password():
+    print("Sending password")
     try:
         with open('temp_tracker_password.json', 'r') as file:
             temp_tracker_password = file.read()
@@ -420,6 +439,8 @@ def send_password():
 
 
 async def main():
+    reset_button = ResetButton()
+    
     try:
         with open('network_credentials.json', 'r') as file:
             credentials_file = file.read()
@@ -466,8 +487,6 @@ async def main():
             
     
     print(f"Received IP: {ip_value}")
-    
-    reset_button = ResetButton()
     
     tracker_id_control()
     
